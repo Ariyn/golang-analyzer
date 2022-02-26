@@ -353,6 +353,24 @@ func Test_parseParameters(t *testing.T) {
 			Name: "",
 			Type: "os.File",
 		}}},
+	}, {
+		name: "이름이 없는경우, 타입이 포인터라도 잘 파싱됨",
+		raw:  "(*os.File)",
+		wantParameters: []Parameters{{{
+			Name:      "",
+			IsPointer: true,
+			Type:      "os.File",
+		}}},
+	}, {
+		name: "이름이 없는경우, 두개 이상의 타입이 있더라도 잘 파싱됨",
+		raw:  "(os.File, log.Logger)",
+		wantParameters: []Parameters{{{
+			Name: "",
+			Type: "os.File",
+		}}, {{
+			Name: "",
+			Type: "log.Logger",
+		}}},
 	}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
