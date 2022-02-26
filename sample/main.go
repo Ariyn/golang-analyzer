@@ -4,18 +4,20 @@ import (
 	"log"
 	"os"
 	t "strings"
+
+	_ "github.com/ariyn/golang-analyzer/analyzer"
 )
 
-//func main() {
-//	log.Println("hello, world!")
-//
-//	a := 2
-//	b := getB()
-//1
-//	result := multiply(a, b)
-//
-//	checkResult(result)
-//}
+func main() {
+	log.Println("hello, world!")
+
+	a := 2
+	b := getB()
+
+	result := multiply(a, b)
+
+	checkResult(result)
+}
 
 // getB is test function
 // thi sdf
@@ -24,15 +26,15 @@ func getB() int { // test
 	return 3
 }
 
-//// multiply is test function
-//func multiply(a, b int) (result int) {
-//	result = a * b
-//	return
-//}
-//
-//func checkResult(result int) {
-//	log.Println(result)
-//}
+// multiply is test function
+func multiply(a, b int) (result int) {
+	result = a * b
+	return
+}
+
+func checkResult(result int) {
+	log.Println(result)
+}
 
 type x int
 

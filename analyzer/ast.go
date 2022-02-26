@@ -14,7 +14,17 @@ import (
 )
 
 type Import struct {
-	Name string
+	Name  string
+	Alias string
+	Path  string
+}
+
+func (i Import) Caller() string {
+	if i.Alias != "" && i.Alias != "_" {
+		return i.Alias
+	}
+
+	return i.Name
 }
 
 //type Typ struct {
@@ -96,7 +106,9 @@ func (fs FunctionStatement) String() string {
 	return fmt.Sprintf("func %s%s%s%s", receiver, fs.Name, fs.Parameters, returns)
 }
 
+// TODO: make these variables into
 var variableTable = make(map[string]interface{})
+var ImportTable = make(map[string]Import)
 
 func Parse() {
 	log.SetFlags(log.LstdFlags | log.Llongfile)
@@ -133,6 +145,28 @@ func Parse() {
 	}
 }
 
+func ParseImport(is *ast.ImportSpec) Import {
+	var alias string
+	if is.Name != nil {
+		alias = is.Name.Name
+	}
+
+	var path, name string
+	if is.Path != nil {
+		path = is.Path.Value[1 : len(is.Path.Value)-1]
+		pathParts := strings.Split(path, "/")
+		if len(pathParts) > 0 {
+			name = pathParts[len(pathParts)-1]
+		}
+	}
+
+	return Import{
+		Name:  name,
+		Alias: alias,
+		Path:  path,
+	}
+}
+
 func inspector(ctx context.Context, pkgName string, file *os.File) (fch chan FunctionStatement, f func(node ast.Node) bool) {
 	sourceCode, err := ioutil.ReadAll(file)
 	if err != nil {
@@ -157,12 +191,10 @@ func inspector(ctx context.Context, pkgName string, file *os.File) (fch chan Fun
 		//case *ast.Package:
 		//	log.Println("  package ", x.Imports, x.Name, x.Files, x.Scope)
 		case *ast.ImportSpec:
-			if x.Name != nil {
-				log.Printf("import name is %s", x.Name.Name)
-			}
-			log.Printf("  import spec %s", x.Path.Value)
-			//case *ast.CallExpr:
-			//	log.Printf("  call expr, %#v", x.Fun)
+			imp := ParseImport(x)
+			ImportTable[imp.Caller()] = imp
+		case *ast.CallExpr:
+			log.Printf("  call expr, %#v", x.Fun)
 			//	if s, ok := x.Fun.(*ast.SelectorExpr); ok {
 			//		log.Printf("    selector expr %#v, %#v", s.X.(*ast.Ident), s.Sel)
 			//	}
