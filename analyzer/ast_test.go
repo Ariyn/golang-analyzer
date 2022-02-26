@@ -216,164 +216,184 @@ func Test_ParameterTypes(t *testing.T) {
 }
 
 func Test_parseParameters(t *testing.T) {
-	tests := []struct {
+	type testCase struct {
 		name           string
 		raw            string
 		wantParameters []Parameters
-	}{{
-		name: "파라미터가 한개인 경우, 잘 파싱됨",
-		raw:  "(a int)",
-		wantParameters: []Parameters{{{
-			Name: "a",
-			Type: "int",
-		}}},
-	}, {
-		name: "파라미터가 타입이 생략된 두개인 경우, 잘 파싱됨",
-		raw:  "(a, b string)",
-		wantParameters: []Parameters{{{
-			Name:                 "a",
-			IsMultipleParameters: true,
-			Type:                 "string",
+	}
+
+	tests := map[string][]testCase{
+		"이름이 있고, 타입이 값인 경우": {{
+			name: "파라미터가 한개인 경우",
+			raw:  "(a int)",
+			wantParameters: []Parameters{{{
+				Name: "a",
+				Type: "int",
+			}}},
 		}, {
-			Name:                 "b",
-			IsMultipleParameters: false,
-			Type:                 "string",
-		}}},
-	}, {
-		name: "파라미터가 타입이 다른 두개인 경우, 잘 파싱됨",
-		raw:  "(a int, b string)",
-		wantParameters: []Parameters{{{
-			Name: "a",
-			Type: "int",
-		}}, {{
-			Name: "b",
-			Type: "string",
-		}}},
-	}, {
-		name: "파라미터의 타입이 포인터인 경우, 잘 파싱됨",
-		raw:  "(a *string)",
-		wantParameters: []Parameters{{{
-			Name:      "a",
-			IsPointer: true,
-			Type:      "string",
-		}}},
-	}, {
-		name: "파라미터의 타입이 포인터이며 두개 이상인 경우, 잘 파싱됨",
-		raw:  "(a *string, b *int)",
-		wantParameters: []Parameters{{{
-			Name:      "a",
-			IsPointer: true,
-			Type:      "string",
-		}}, {{
-			Name:      "b",
-			IsPointer: true,
-			Type:      "int",
-		}}},
-	}, {
-		name: "파라미터의 타입이 포인터이며 두개 이상이 동일한 타입을 가진 경우, 잘 파싱됨",
-		raw:  "(a, b *int)",
-		wantParameters: []Parameters{{{
-			Name:                 "a",
-			IsMultipleParameters: true,
-			IsPointer:            true,
-			Type:                 "int",
+			name: "파라미터가 타입이 생략된 두개인 경우",
+			raw:  "(a, b string)",
+			wantParameters: []Parameters{{{
+				Name:                 "a",
+				IsMultipleParameters: true,
+				Type:                 "string",
+			}, {
+				Name:                 "b",
+				IsMultipleParameters: false,
+				Type:                 "string",
+			}}},
 		}, {
-			Name:                 "b",
-			IsMultipleParameters: false,
-			IsPointer:            true,
-			Type:                 "int",
-		}}},
-	}, {
-		name: "selector가 있고 파라미터가 한개인 경우, 잘 파싱됨",
-		raw:  "(a os.File)",
-		wantParameters: []Parameters{{{
-			Name: "a",
-			Type: "os.File",
-		}}},
-	}, {
-		name: "파라미터가 타입이 생략된 두개인 경우, 잘 파싱됨",
-		raw:  "(a, b os.File)",
-		wantParameters: []Parameters{{{
-			Name:                 "a",
-			IsMultipleParameters: true,
-			Type:                 "os.File",
+			name: "파라미터가 타입이 다른 두개인 경우",
+			raw:  "(a int, b string)",
+			wantParameters: []Parameters{{{
+				Name: "a",
+				Type: "int",
+			}}, {{
+				Name: "b",
+				Type: "string",
+			}}},
+		}},
+		"이름이 있고, 타입이 포인터인 경우": {{
+			name: "파라미터가 한개인 경우",
+			raw:  "(a *string)",
+			wantParameters: []Parameters{{{
+				Name:      "a",
+				IsPointer: true,
+				Type:      "string",
+			}}},
 		}, {
-			Name:                 "b",
-			IsMultipleParameters: false,
-			Type:                 "os.File",
-		}}},
-	}, {
-		name: "파라미터가 타입이 다른 두개인 경우, 잘 파싱됨",
-		raw:  "(a log.Logger, b os.File)",
-		wantParameters: []Parameters{{{
-			Name: "a",
-			Type: "log.Logger",
-		}}, {{
-			Name: "b",
-			Type: "os.File",
-		}}},
-	}, {
-		name: "파라미터의 타입이 포인터인 경우, 잘 파싱됨",
-		raw:  "(a *os.File)",
-		wantParameters: []Parameters{{{
-			Name:      "a",
-			IsPointer: true,
-			Type:      "os.File",
-		}}},
-	}, {
-		name: "파라미터의 타입이 포인터이며 두개 이상인 경우, 잘 파싱됨",
-		raw:  "(a *os.File, b *log.Logger)",
-		wantParameters: []Parameters{{{
-			Name:      "a",
-			IsPointer: true,
-			Type:      "os.File",
-		}}, {{
-			Name:      "b",
-			IsPointer: true,
-			Type:      "log.Logger",
-		}}},
-	}, {
-		name: "파라미터의 타입이 포인터이며 두개 이상이 동일한 타입을 가진 경우, 잘 파싱됨",
-		raw:  "(a, b *os.File)",
-		wantParameters: []Parameters{{{
-			Name:                 "a",
-			IsMultipleParameters: true,
-			IsPointer:            true,
-			Type:                 "os.File",
+			name: "파라미터가 두개 이상인 경우",
+			raw:  "(a *string, b *int)",
+			wantParameters: []Parameters{{{
+				Name:      "a",
+				IsPointer: true,
+				Type:      "string",
+			}}, {{
+				Name:      "b",
+				IsPointer: true,
+				Type:      "int",
+			}}},
 		}, {
-			Name:                 "b",
-			IsMultipleParameters: false,
-			IsPointer:            true,
-			Type:                 "os.File",
-		}}},
-	}, {
-		name: "이름이 없는경우 잘 파싱됨",
-		raw:  "(os.File)",
-		wantParameters: []Parameters{{{
-			Name: "",
-			Type: "os.File",
-		}}},
-	}, {
-		name: "이름이 없는경우, 타입이 포인터라도 잘 파싱됨",
-		raw:  "(*os.File)",
-		wantParameters: []Parameters{{{
-			Name:      "",
-			IsPointer: true,
-			Type:      "os.File",
-		}}},
-	}, {
-		name: "이름이 없는경우, 두개 이상의 타입이 있더라도 잘 파싱됨",
-		raw:  "(os.File, log.Logger)",
-		wantParameters: []Parameters{{{
-			Name: "",
-			Type: "os.File",
-		}}, {{
-			Name: "",
-			Type: "log.Logger",
-		}}},
-	}}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+			name: "파라미터 두개 이상이 동일한 타입을 가진 경우",
+			raw:  "(a, b *int)",
+			wantParameters: []Parameters{{{
+				Name:                 "a",
+				IsMultipleParameters: true,
+				IsPointer:            true,
+				Type:                 "int",
+			}, {
+				Name:                 "b",
+				IsMultipleParameters: false,
+				IsPointer:            true,
+				Type:                 "int",
+			}}},
+		}},
+		"export된 selector인 경우": {{
+			name: "파라미터가 한개인 경우",
+			raw:  "(a os.File)",
+			wantParameters: []Parameters{{{
+				Name: "a",
+				Type: "os.File",
+			}}},
+		}, {
+			name: "파라미터가 타입이 생략된 두개인 경우",
+			raw:  "(a, b os.File)",
+			wantParameters: []Parameters{{{
+				Name:                 "a",
+				IsMultipleParameters: true,
+				Type:                 "os.File",
+			}, {
+				Name:                 "b",
+				IsMultipleParameters: false,
+				Type:                 "os.File",
+			}}},
+		}, {
+			name: "파라미터가 타입이 다른 두개인 경우",
+			raw:  "(a log.Logger, b os.File)",
+			wantParameters: []Parameters{{{
+				Name: "a",
+				Type: "log.Logger",
+			}}, {{
+				Name: "b",
+				Type: "os.File",
+			}}},
+		}},
+		"export된 selector이며 포인터 타입인 경우": {{
+			name: "파라미터가 한개인 경우",
+			raw:  "(a *os.File)",
+			wantParameters: []Parameters{{{
+				Name:      "a",
+				IsPointer: true,
+				Type:      "os.File",
+			}}},
+		}, {
+			name: "파라미터가 두개 이상인 경우",
+			raw:  "(a *os.File, b *log.Logger)",
+			wantParameters: []Parameters{{{
+				Name:      "a",
+				IsPointer: true,
+				Type:      "os.File",
+			}}, {{
+				Name:      "b",
+				IsPointer: true,
+				Type:      "log.Logger",
+			}}},
+		}, {
+			name: "파라미터 두개 이상이 동일한 타입을 가진 경우",
+			raw:  "(a, b *os.File)",
+			wantParameters: []Parameters{{{
+				Name:                 "a",
+				IsMultipleParameters: true,
+				IsPointer:            true,
+				Type:                 "os.File",
+			}, {
+				Name:                 "b",
+				IsMultipleParameters: false,
+				IsPointer:            true,
+				Type:                 "os.File",
+			}}},
+		}},
+		"이름이 없는 경우": {{
+			name: "파라미터가 한개인 경우",
+			raw:  "(os.File)",
+			wantParameters: []Parameters{{{
+				Name: "",
+				Type: "os.File",
+			}}},
+		}, {
+			name: "타입이 포인터인 경우",
+			raw:  "(*os.File)",
+			wantParameters: []Parameters{{{
+				Name:      "",
+				IsPointer: true,
+				Type:      "os.File",
+			}}},
+		}, {
+			name: "파라미터 두개 이상의 타입인 경우",
+			raw:  "(os.File, log.Logger)",
+			wantParameters: []Parameters{{{
+				Name: "",
+				Type: "os.File",
+			}}, {{
+				Name: "",
+				Type: "log.Logger",
+			}}},
+		}, {
+			name: "파라미터 두개 이상의 타입이 포인터인 경우",
+			raw:  "(*os.File, *log.Logger)",
+			wantParameters: []Parameters{{{
+				Name:      "",
+				IsPointer: true,
+				Type:      "os.File",
+			}}, {{
+				Name:      "",
+				IsPointer: true,
+				Type:      "log.Logger",
+			}}},
+		}}}
+
+	testMethod := func(tt testCase) func(t *testing.T) {
+		return func(t *testing.T) {
 			prms := getParsedParameter(tt.raw)
 
 			for i := range prms {
@@ -381,6 +401,18 @@ func Test_parseParameters(t *testing.T) {
 					t.Errorf("parseParameters() = %v, want %v", gotParameters, tt.wantParameters[i])
 				}
 			}
+		}
+	}
+
+	for testCategory, testCases := range tests {
+		t.Run(testCategory, func(t *testing.T) {
+			for _, tt := range testCases {
+				t.Run(tt.name, testMethod(tt))
+			}
+		})
+	}
+}
+
 		})
 	}
 }
