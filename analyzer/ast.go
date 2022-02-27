@@ -80,6 +80,23 @@ func (ps Parameters) String() string {
 	return "(" + strings.Join(prmsString, ", ") + ")"
 }
 
+type FunctionCall struct {
+	Package              string
+	Receiver             string
+	Name                 string
+	Parameters           Parameters
+	FunctionDeclarations FunctionStatement
+	IsImportedFunction   bool
+	File                 string
+	FilePath             string
+	Pos                  int
+	LineNumber           int
+}
+
+func (fc FunctionCall) Identifier() string {
+	return fc.Name
+}
+
 type FunctionStatement struct {
 	Package    string
 	Receiver   Parameter
@@ -88,6 +105,18 @@ type FunctionStatement struct {
 	Returns    Parameters
 	Body       *ast.BlockStmt
 	SourceCode SourceCode
+	Calls      []FunctionCall
+}
+
+func (fs FunctionStatement) Identifier() (idf string) {
+	idfs := []string{fs.Package}
+
+	if fs.Receiver.Type != "" {
+		idfs = append(idfs, fs.Receiver.Type)
+	}
+	idfs = append(idfs, fs.Name)
+
+	return strings.Join(idfs, ".")
 }
 
 func (fs FunctionStatement) String() string {
@@ -109,6 +138,10 @@ func (fs FunctionStatement) String() string {
 // TODO: make these variables into
 var variableTable = make(map[string]interface{})
 var ImportTable = make(map[string]Import)
+var functionsByName = make(map[string]FunctionStatement)
+
+// TODO: make this global variable into channel
+var functionCalls = make([]FunctionCall, 0)
 
 func Parse() {
 	log.SetFlags(log.LstdFlags | log.Llongfile)
@@ -140,8 +173,25 @@ func Parse() {
 		}
 	}
 
-	for _, function := range functions {
-		log.Printf("%s", function)
+	for index, function := range functionCalls {
+		identifier := function.Identifier()
+		decl, ok := functionsByName[identifier]
+
+		if !ok && !function.IsImportedFunction {
+			panic(fmt.Errorf("not declared function called (%s)", function.Identifier()))
+		}
+
+		// TODO: declations to declation
+		function.FunctionDeclarations = decl
+		decl.Calls = append(decl.Calls, function)
+
+		functionsByName[identifier] = decl
+
+		functionCalls[index] = function
+	}
+
+	for _, function := range functionCalls {
+		log.Println(function.Identifier(), function.LineNumber)
 	}
 }
 
@@ -167,6 +217,26 @@ func ParseImport(is *ast.ImportSpec) Import {
 	}
 }
 
+func ParseFuncCall(pkgName string, ce *ast.CallExpr) (functionCall FunctionCall) {
+	switch x := ce.Fun.(type) {
+	case *ast.Ident:
+		functionDecl := parseFuncDecl(pkgName, x.Obj.Decl.(*ast.FuncDecl))
+		functionCall = FunctionCall{
+			Name: functionDecl.Identifier(),
+			Pos:  int(x.Pos()),
+		}
+	case *ast.SelectorExpr:
+		functionCall = FunctionCall{
+			Name: x.X.(*ast.Ident).Name + "." + x.Sel.Name,
+			Pos:  int(x.Pos()),
+		}
+
+		functionCall.IsImportedFunction = x.X.(*ast.Ident).Obj == nil
+	}
+
+	return functionCall
+}
+
 func inspector(ctx context.Context, pkgName string, file *os.File) (fch chan FunctionStatement, f func(node ast.Node) bool) {
 	sourceCode, err := ioutil.ReadAll(file)
 	if err != nil {
@@ -182,22 +252,16 @@ func inspector(ctx context.Context, pkgName string, file *os.File) (fch chan Fun
 			function := parseFuncDecl(pkgName, x)
 			function.SourceCode.Data = string(sourceCode[x.Pos()-1 : x.End()])
 			function.SourceCode.File = file
-
-		//case *ast.Ident:
-		//	log.Println("  ident ", x.Name)
-		//	if x.Obj != nil {
-		//		log.Printf("    %#v", x.Obj)
-		//	}
-		//case *ast.Package:
-		//	log.Println("  package ", x.Imports, x.Name, x.Files, x.Scope)
+			functionsByName[function.Identifier()] = function
 		case *ast.ImportSpec:
 			imp := ParseImport(x)
 			ImportTable[imp.Caller()] = imp
 		case *ast.CallExpr:
-			log.Printf("  call expr, %#v", x.Fun)
-			//	if s, ok := x.Fun.(*ast.SelectorExpr); ok {
-			//		log.Printf("    selector expr %#v, %#v", s.X.(*ast.Ident), s.Sel)
-			//	}
+			functionCall := ParseFuncCall(pkgName, x)
+			functionCall.File = file.Name()
+			functionCall.LineNumber = strings.Count(string(sourceCode[:functionCall.Pos]), "\n") + 1
+
+			functionCalls = append(functionCalls, functionCall)
 		}
 		return true
 	}

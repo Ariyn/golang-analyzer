@@ -13,10 +13,13 @@ func main() {
 
 	a := 2
 	b := getB()
+	b2 := getB()
+	b3 := getB()
 
 	result := multiply(a, b)
 
 	checkResult(result)
+	log.Println(b2, b3)
 }
 
 // getB is test function
