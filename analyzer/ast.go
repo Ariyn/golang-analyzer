@@ -175,11 +175,13 @@ func Parse() {
 
 	for index, function := range functionCalls {
 		identifier := function.Identifier()
-		decl, ok := functionsByName[identifier]
+		decl, _ := functionsByName[identifier]
 
-		if !ok && !function.IsImportedFunction {
-			panic(fmt.Errorf("not declared function called (%s)", function.Identifier()))
-		}
+		f := fset.File(token.Pos(function.Pos))
+		function.File = f.Name()
+		//if !ok && !function.IsImportedFunction {
+		//	panic(fmt.Errorf("not declared function called (%s)", function.Identifier()))
+		//}
 
 		// TODO: declations to declation
 		function.FunctionDeclarations = decl
@@ -191,7 +193,7 @@ func Parse() {
 	}
 
 	for _, function := range functionCalls {
-		log.Println(function.Identifier(), function.LineNumber)
+		log.Println(function.File, function.Identifier(), function.LineNumber)
 	}
 }
 
@@ -218,19 +220,18 @@ func ParseImport(is *ast.ImportSpec) Import {
 }
 
 func ParseFuncCall(pkgName string, ce *ast.CallExpr) (functionCall FunctionCall) {
+	functionCall.Pos = int(ce.Pos())
+
 	switch x := ce.Fun.(type) {
 	case *ast.Ident:
-		functionDecl := parseFuncDecl(pkgName, x.Obj.Decl.(*ast.FuncDecl))
-		functionCall = FunctionCall{
-			Name: functionDecl.Identifier(),
-			Pos:  int(x.Pos()),
+		if x.Obj != nil {
+			functionDecl := parseFuncDecl(pkgName, x.Obj.Decl.(*ast.FuncDecl))
+			functionCall.Name = functionDecl.Identifier()
+		} else {
+			functionCall.Name = x.Name
 		}
 	case *ast.SelectorExpr:
-		functionCall = FunctionCall{
-			Name: x.X.(*ast.Ident).Name + "." + x.Sel.Name,
-			Pos:  int(x.Pos()),
-		}
-
+		functionCall.Name = x.X.(*ast.Ident).Name + "." + x.Sel.Name
 		functionCall.IsImportedFunction = x.X.(*ast.Ident).Obj == nil
 	}
 

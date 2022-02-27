@@ -20,6 +20,8 @@ func main() {
 
 	checkResult(result)
 	log.Println(b2, b3)
+
+	sample2()
 }
 
 // getB is test function
