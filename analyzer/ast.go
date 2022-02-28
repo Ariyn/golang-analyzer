@@ -179,6 +179,8 @@ func Parse() {
 
 		f := fset.File(token.Pos(function.Pos))
 		function.File = f.Name()
+		function.LineNumber = f.Line(token.Pos(function.Pos))
+
 		//if !ok && !function.IsImportedFunction {
 		//	panic(fmt.Errorf("not declared function called (%s)", function.Identifier()))
 		//}
@@ -252,16 +254,12 @@ func inspector(ctx context.Context, pkgName string, file *os.File) (fch chan Fun
 		case *ast.FuncDecl:
 			function := parseFuncDecl(pkgName, x)
 			function.SourceCode.Data = string(sourceCode[x.Pos()-1 : x.End()])
-			function.SourceCode.File = file
 			functionsByName[function.Identifier()] = function
 		case *ast.ImportSpec:
 			imp := ParseImport(x)
 			ImportTable[imp.Caller()] = imp
 		case *ast.CallExpr:
 			functionCall := ParseFuncCall(pkgName, x)
-			functionCall.File = file.Name()
-			functionCall.LineNumber = strings.Count(string(sourceCode[:functionCall.Pos]), "\n") + 1
-
 			functionCalls = append(functionCalls, functionCall)
 		}
 		return true
