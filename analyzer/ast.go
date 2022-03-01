@@ -81,16 +81,16 @@ func (ps Parameters) String() string {
 }
 
 type FunctionCall struct {
-	Package              string
-	Receiver             string
-	Name                 string
-	Parameters           Parameters
-	FunctionDeclarations FunctionStatement
-	IsImportedFunction   bool
-	File                 string
-	FilePath             string
-	Pos                  int
-	LineNumber           int
+	Package             string
+	Receiver            string
+	Name                string
+	Parameters          Parameters
+	FunctionDeclaration FunctionStatement
+	IsImportedFunction  bool
+	File                string
+	FilePath            string
+	Pos                 int
+	LineNumber          int
 }
 
 func (fc FunctionCall) Identifier() string {
@@ -175,7 +175,13 @@ func Parse() {
 
 	for index, function := range functionCalls {
 		identifier := function.Identifier()
-		decl, _ := functionsByName[identifier]
+
+		if decl, ok := functionsByName[identifier]; ok {
+			function.FunctionDeclaration = decl
+			decl.Calls = append(decl.Calls, function)
+
+			functionsByName[identifier] = decl
+		}
 
 		f := fset.File(token.Pos(function.Pos))
 		function.File = f.Name()
@@ -185,18 +191,15 @@ func Parse() {
 		//	panic(fmt.Errorf("not declared function called (%s)", function.Identifier()))
 		//}
 
-		// TODO: declations to declation
-		function.FunctionDeclarations = decl
-		decl.Calls = append(decl.Calls, function)
-
-		functionsByName[identifier] = decl
-
 		functionCalls[index] = function
 	}
 
-	for _, function := range functionCalls {
-		log.Println(function.File, function.Identifier(), function.LineNumber)
-	}
+	log.Println(len(functionCalls))
+	//for _, function := range functionCalls {
+	//	if !function.IsImportedFunction {
+	//		log.Println(function.File, function.Identifier(), function.LineNumber, "delcation", function.FunctionDeclaration.SourceCode.Data)
+	//	}
+	//}
 }
 
 func ParseImport(is *ast.ImportSpec) Import {
