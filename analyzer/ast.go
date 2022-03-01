@@ -154,15 +154,10 @@ func Parse() {
 		panic(err)
 	}
 
-	f, err := os.Open("/Users/hwangminuk/Documents/go/src/github.com/ariyn/golang-analyzer/sample/main.go")
-	if err != nil {
-		panic(err)
-	}
-
 	functions := []FunctionStatement{}
 
 	for pkgName, pkg := range pkgs {
-		fch, insptr := inspector(context.TODO(), pkgName, f)
+		fch, insptr := inspector(context.TODO(), pkgName, fset)
 		go func(fch chan FunctionStatement) {
 			ast.Inspect(pkg, insptr)
 			close(fch)
@@ -230,25 +225,31 @@ func ParseFuncCall(pkgName string, ce *ast.CallExpr) (functionCall FunctionCall)
 	switch x := ce.Fun.(type) {
 	case *ast.Ident:
 		if x.Obj != nil {
-			functionDecl := parseFuncDecl(pkgName, x.Obj.Decl.(*ast.FuncDecl))
-			functionCall.Name = functionDecl.Identifier()
+			switch x2 := x.Obj.Decl.(type) {
+			case *ast.FuncDecl:
+				functionDecl := parseFuncDecl(pkgName, x2)
+				functionCall.Name = functionDecl.Identifier()
+			case *ast.AssignStmt:
+				// TODO: _ = routeFunc(c)의 경우, x.Obj.Decl의 타일이 *ast.assignStmt로 분류된다.
+				log.Println(x.Obj.Decl, x.Pos(), x.End(), fset.File(x.Pos()).Name(), fset.File(x.Pos()).Line(x.Pos()))
+			}
 		} else {
-			functionCall.Name = x.Name
+			functionCall.Name = pkgName + "." + x.Name
 		}
 	case *ast.SelectorExpr:
-		functionCall.Name = x.X.(*ast.Ident).Name + "." + x.Sel.Name
-		functionCall.IsImportedFunction = x.X.(*ast.Ident).Obj == nil
+		switch x2 := x.X.(type) {
+		case *ast.Ident:
+			functionCall.Name = x2.Name + "." + x.Sel.Name
+			functionCall.IsImportedFunction = x2.Obj == nil
+		case *ast.SelectorExpr: // TODO: a().b().c().d.e.f() 이처럼, 여러개의 selector가 중첩되어 있을 수 있음. recursive하게 수정 필요.
+			log.Println(x2, x2.Pos(), x2.End(), fset.File(x2.Pos()).Name(), fset.File(x2.Pos()).Line(x2.Pos()))
+		}
 	}
 
 	return functionCall
 }
 
-func inspector(ctx context.Context, pkgName string, file *os.File) (fch chan FunctionStatement, f func(node ast.Node) bool) {
-	sourceCode, err := ioutil.ReadAll(file)
-	if err != nil {
-		panic(err)
-	}
-
+func inspector(ctx context.Context, pkgName string, fset *token.FileSet) (fch chan FunctionStatement, f func(node ast.Node) bool) {
 	fch = make(chan FunctionStatement)
 
 	f = func(node ast.Node) bool {
@@ -256,7 +257,13 @@ func inspector(ctx context.Context, pkgName string, file *os.File) (fch chan Fun
 		switch x := node.(type) {
 		case *ast.FuncDecl:
 			function := parseFuncDecl(pkgName, x)
-			function.SourceCode.Data = string(sourceCode[x.Pos()-1 : x.End()])
+			tokenFile := fset.File(function.SourceCode.Pos)
+			if file, err := os.Open(tokenFile.Name()); err == nil {
+				b, _ := ioutil.ReadAll(file)
+				if b != nil {
+					function.SourceCode.Data = string(b[tokenFile.Offset(x.Pos())-1 : tokenFile.Offset(x.End())])
+				}
+			}
 			functionsByName[function.Identifier()] = function
 		case *ast.ImportSpec:
 			imp := ParseImport(x)
