@@ -143,10 +143,12 @@ var functionsByName = make(map[string]FunctionStatement)
 // TODO: make this global variable into channel
 var functionCalls = make([]FunctionCall, 0)
 
+var fset *token.FileSet
+
 func Parse() {
 	log.SetFlags(log.LstdFlags | log.Llongfile)
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, "sample", func(info fs.FileInfo) bool {
+	fset = token.NewFileSet()
+	pkgs, err := parser.ParseDir(fset, "sample/echo", func(info fs.FileInfo) bool {
 		return true
 	}, 0)
 
