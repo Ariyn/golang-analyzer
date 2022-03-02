@@ -223,6 +223,7 @@ func ParseImport(is *ast.ImportSpec) Import {
 
 func ParseFuncCall(pkgName string, ce *ast.CallExpr) (functionCall FunctionCall) {
 	functionCall.Pos = int(ce.Pos())
+	functionCall.Package = pkgName
 
 	switch x := ce.Fun.(type) {
 	case *ast.Ident:
@@ -232,8 +233,7 @@ func ParseFuncCall(pkgName string, ce *ast.CallExpr) (functionCall FunctionCall)
 				functionDecl := parseFuncDecl(pkgName, x2)
 				functionCall.Name = functionDecl.Identifier()
 			case *ast.AssignStmt:
-				// TODO: _ = routeFunc(c)의 경우, x.Obj.Decl의 타일이 *ast.assignStmt로 분류된다.
-				log.Println(x.Obj.Decl, x.Pos(), x.End(), fset.File(x.Pos()).Name(), fset.File(x.Pos()).Line(x.Pos()))
+				functionCall.Name = pkgName + "." + x2.Lhs[0].(*ast.Ident).Name
 			}
 		} else {
 			functionCall.Name = pkgName + "." + x.Name

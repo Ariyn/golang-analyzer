@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"log"
 	"reflect"
 	"strings"
 	"testing"
@@ -413,6 +414,239 @@ func Test_parseParameters(t *testing.T) {
 	}
 }
 
+func getParsedFuncDecl(rawCode string) *ast.FuncDecl {
+	fset := token.NewFileSet()
+
+	node, err := parser.ParseFile(fset, "sample.go", "package sample\n"+rawCode, 0)
+	if err != nil {
+		panic(err)
+	}
+
+	log.Printf("%#v", node)
+
+	return node.Decls[0].(*ast.FuncDecl)
+}
+
+func Test_FuncDeclTypes(t *testing.T) {
+	getParsedFuncDecl("func (x T) main() int { return }")
+}
+
+func Test_parseFuncDecl(t *testing.T) {
+
+	const pkgName = "samplePkg"
+	type args struct {
+		pkgName string
+		x       *ast.FuncDecl
+	}
+	tests := []struct {
+		name string
+		args args
+		want FunctionStatement
+	}{{
+		name: "파라미터, 리턴값, 리시버가 없는 함수를 파싱하는 경우",
+		args: args{
+			pkgName: pkgName,
+			x:       getParsedFuncDecl("func sampleFunc() {}"),
+		},
+		want: FunctionStatement{
+			Package:    pkgName,
+			Name:       "sampleFunc",
+			Parameters: Parameters{},
+			Returns:    Parameters{},
+		},
+	}, {
+		name: "파라미터가 한개 있고 리턴값, 리시버가 없는 함수를 파싱하는 경우",
+		args: args{
+			pkgName: pkgName,
+			x:       getParsedFuncDecl("func sampleFunc(a int) {}"),
+		},
+		want: FunctionStatement{
+			Package: pkgName,
+			Name:    "sampleFunc",
+			Parameters: Parameters{{
+				Pkg:  pkgName,
+				Name: "a",
+				Type: "int",
+			}},
+			Returns: Parameters{},
+		},
+	}, {
+		name: "파라미터가 없고, 리턴값이 있고, 리시버가 없는 함수를 파싱하는 경우",
+		args: args{
+			pkgName: pkgName,
+			x:       getParsedFuncDecl("func sampleFunc() (a int) {}"),
+		},
+		want: FunctionStatement{
+			Package:    pkgName,
+			Name:       "sampleFunc",
+			Parameters: Parameters{},
+			Returns: Parameters{{
+				Pkg:  pkgName,
+				Name: "a",
+				Type: "int",
+			}},
+		},
+	}, {
+		name: "파라미터, 리턴값이 없고, 리시버가 있는 함수를 파싱하는 경우",
+		args: args{
+			pkgName: pkgName,
+			x:       getParsedFuncDecl("func(a sampleStruct) sampleFunc() {}"),
+		},
+		want: FunctionStatement{
+			Package:    pkgName,
+			Name:       "sampleFunc",
+			Parameters: Parameters{},
+			Returns:    Parameters{},
+			Receiver: Parameter{
+				Pkg:  pkgName,
+				Name: "a",
+				Type: "sampleStruct",
+			},
+		},
+	}}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.want.SourceCode.Pos = tt.args.x.Pos()
+			tt.want.SourceCode.End = tt.args.x.End()
+			tt.want.Body = tt.args.x.Body
+
+			if got := parseFuncDecl(tt.args.pkgName, tt.args.x); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("parseFuncDecl() = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
+func getParsedImport(imp string) []*ast.ImportSpec {
+	fset := token.NewFileSet()
+
+	node, err := parser.ParseFile(fset, "sample.go", "package sample\n"+imp, 0)
+	if err != nil {
+		panic(err)
+	}
+
+	return node.Imports
+}
+
+func TestParseImport(t *testing.T) {
+	type args struct {
+		is *ast.ImportSpec
+	}
+	tests := []struct {
+		name string
+		args args
+		want Import
+	}{{
+		name: "standard library를 임포트 했을때, 잘 파싱 되는지",
+		args: args{
+			is: getParsedImport(`import "log"`)[0],
+		},
+		want: Import{
+			Name: "log",
+			Path: "log",
+		},
+	}, {
+		name: "standard library를 alias와 함께 임포트 했을때, 잘 파싱 되는지",
+		args: args{
+			is: getParsedImport(`import a "log"`)[0],
+		},
+		want: Import{
+			Name:  "log",
+			Alias: "a",
+			Path:  "log",
+		},
+	}, {
+		name: "특정 레포의 패키지를 임포트 했을때, 잘 파싱 되는지",
+		args: args{
+			is: getParsedImport(`import "github.com/ariyn/golang-analyzer/analyzer"`)[0],
+		},
+		want: Import{
+			Name: "analyzer",
+			Path: "github.com/ariyn/golang-analyzer/analyzer",
+		},
+	}, {
+		name: "특정 레포의 패키지를 alias와 함께 임포트 했을때, 잘 파싱 되는지",
+		args: args{
+			is: getParsedImport(`import a "github.com/ariyn/golang-analyzer/analyzer"`)[0],
+		},
+		want: Import{
+			Name:  "analyzer",
+			Alias: "a",
+			Path:  "github.com/ariyn/golang-analyzer/analyzer",
+		},
+	}}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ParseImport(tt.args.is); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ParseImport() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func getParsedFunctionCall(source string) (fset *token.FileSet, ce *ast.CallExpr) {
+	fset = token.NewFileSet()
+
+	node, err := parser.ParseFile(fset, "sample.go", "package sample\n"+source, 0)
+	if err != nil {
+		panic(err)
+	}
+
+	var expr ast.Stmt
+	for _, decl := range node.Decls {
+		if e, ok := decl.(*ast.FuncDecl); ok && e.Name.Name == "main" {
+			expr = e.Body.List[len(e.Body.List)-1]
+		}
+	}
+
+	switch x := expr.(type) {
+	case *ast.ExprStmt:
+		ce = x.X.(*ast.CallExpr)
+	}
+	return
+}
+
+// TODO: 테스트 해야하는 엣지 케이스들
+// a().b().c().d.e.f() 이처럼, 여러개의 selector가 중첩된 상태
+func TestParseFuncCall(t *testing.T) {
+	const pkgName = "sample"
+	type args struct {
+		pkgName string
+	}
+	tests := []struct {
+		name             string
+		args             args
+		sourceCode       string
+		wantFunctionCall FunctionCall
+	}{{
+		name: "파라미터가 없는 함수를 호출하는 경우",
+		args: args{
+			pkgName: pkgName,
+		},
+		sourceCode: `func main() {getA()}; func getA() {}`,
+		wantFunctionCall: FunctionCall{
+			Package: pkgName,
+			Name:    pkgName + ".getA",
+		},
+	}, {
+		name: "변수에 할당된 함수를 호출하는 경우",
+		args: args{
+			pkgName: pkgName,
+		},
+		sourceCode: `func main() {getA := func(){}; getA()}`,
+		wantFunctionCall: FunctionCall{
+			Package: pkgName,
+			Name:    pkgName + ".getA",
+		},
+	}}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, fc := getParsedFunctionCall(tt.sourceCode)
+			tt.wantFunctionCall.Pos = int(fc.Pos())
+			if gotFunctionCall := ParseFuncCall(tt.args.pkgName, fc); !reflect.DeepEqual(gotFunctionCall, tt.wantFunctionCall) {
+				t.Errorf("ParseFuncCall() = %#v\nwant %#v", gotFunctionCall, tt.wantFunctionCall)
+			}
 		})
 	}
 }
