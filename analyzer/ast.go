@@ -252,8 +252,6 @@ func ParseFuncCall(pkgName string, ce *ast.CallExpr) (functionCall FunctionCall)
 			case *ast.SelectorExpr:
 				functionCall.Name = x3.X.(*ast.Ident).Name + "." + x3.Sel.Name
 			}
-
-			//log.Println(x2, x2.Pos(), x2.End(), fset.File(x2.Pos()))
 		case *ast.SelectorExpr: // TODO: a().b().c().d.e.f() 이처럼, 여러개의 selector가 중첩되어 있을 수 있음. recursive하게 수정 필요.
 			log.Println(x2, x2.Pos(), x2.End(), fset.File(x2.Pos()).Name(), fset.File(x2.Pos()).Line(x2.Pos()))
 		}
