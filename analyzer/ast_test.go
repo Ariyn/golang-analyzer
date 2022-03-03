@@ -639,6 +639,47 @@ func TestParseFuncCall(t *testing.T) {
 			Package: pkgName,
 			Name:    pkgName + ".getA",
 		},
+	}, {
+		name: "함수 본문이 없는 메서드를 호출하는 경우",
+		args: args{
+			pkgName: pkgName,
+		},
+		sourceCode: `func main() {x.getA()}`,
+		wantFunctionCall: FunctionCall{
+			Package:            pkgName,
+			Name:               "x.getA",
+			IsImportedFunction: true,
+		},
+	}, {
+		name: "함수 본문이 있는 메서드를 호출하는 경우",
+		args: args{
+			pkgName: pkgName,
+		},
+		sourceCode: `type x int; func main() {x.getA()}; func (_ x) getA() {return}`,
+		wantFunctionCall: FunctionCall{
+			Package: pkgName,
+			Name:    "x.getA",
+		},
+	}, {
+		name: "여러개의 메서드를 연속해서 호출하는 경우",
+		args: args{
+			pkgName: pkgName,
+		},
+		sourceCode: `func main() {x.getA().getB()}`,
+		wantFunctionCall: FunctionCall{
+			Package: pkgName,
+			Name:    "x.getA",
+		},
+	}, {
+		name: "함수에서 리턴된 메서드를 연속해서 호출하는 경우",
+		args: args{
+			pkgName: pkgName,
+		},
+		sourceCode: `func main() {getA().getB()}`,
+		wantFunctionCall: FunctionCall{
+			Package: pkgName,
+			Name:    "getA().getB",
+		},
 	}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

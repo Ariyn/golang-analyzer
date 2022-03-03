@@ -225,9 +225,13 @@ func ParseFuncCall(pkgName string, ce *ast.CallExpr) (functionCall FunctionCall)
 	functionCall.Pos = int(ce.Pos())
 	functionCall.Package = pkgName
 
+	// TODO: import된 함수에 대해서, package가 잘 파싱되지 않을 가능성이 있음
 	switch x := ce.Fun.(type) {
 	case *ast.Ident:
-		if x.Obj != nil {
+		functionCall.IsImportedFunction = x.Obj == nil
+		if functionCall.IsImportedFunction {
+			functionCall.Name = pkgName + "." + x.Name
+		} else {
 			switch x2 := x.Obj.Decl.(type) {
 			case *ast.FuncDecl:
 				functionDecl := parseFuncDecl(pkgName, x2)
@@ -235,14 +239,21 @@ func ParseFuncCall(pkgName string, ce *ast.CallExpr) (functionCall FunctionCall)
 			case *ast.AssignStmt:
 				functionCall.Name = pkgName + "." + x2.Lhs[0].(*ast.Ident).Name
 			}
-		} else {
-			functionCall.Name = pkgName + "." + x.Name
 		}
-	case *ast.SelectorExpr:
+	case *ast.SelectorExpr: // TODO: 현재 두번 이상 selector가 들어있다면 파싱에 오류가 생김.
 		switch x2 := x.X.(type) {
 		case *ast.Ident:
 			functionCall.Name = x2.Name + "." + x.Sel.Name
 			functionCall.IsImportedFunction = x2.Obj == nil
+		case *ast.CallExpr:
+			switch x3 := x2.Fun.(type) {
+			case *ast.Ident:
+				functionCall.Name = x3.Name + "()" + "." + x.Sel.Name // TODO: x3.Name이 아니라, x3()가 리턴하는 타입이 들어가야 함
+			case *ast.SelectorExpr:
+				functionCall.Name = x3.X.(*ast.Ident).Name + "." + x3.Sel.Name
+			}
+
+			//log.Println(x2, x2.Pos(), x2.End(), fset.File(x2.Pos()))
 		case *ast.SelectorExpr: // TODO: a().b().c().d.e.f() 이처럼, 여러개의 selector가 중첩되어 있을 수 있음. recursive하게 수정 필요.
 			log.Println(x2, x2.Pos(), x2.End(), fset.File(x2.Pos()).Name(), fset.File(x2.Pos()).Line(x2.Pos()))
 		}
