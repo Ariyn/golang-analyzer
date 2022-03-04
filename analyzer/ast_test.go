@@ -393,12 +393,13 @@ func Test_parseParameters(t *testing.T) {
 			}}},
 		}}}
 
+	p := Parser{}
 	testMethod := func(tt testCase) func(t *testing.T) {
 		return func(t *testing.T) {
 			prms := getParsedParameter(tt.raw)
 
 			for i := range prms {
-				if gotParameters := parseParameters(prms[i]); !reflect.DeepEqual(gotParameters, tt.wantParameters[i]) {
+				if gotParameters := p.ParseParameters(prms[i]); !reflect.DeepEqual(gotParameters, tt.wantParameters[i]) {
 					t.Errorf("parseParameters() = %v, want %v", gotParameters, tt.wantParameters[i])
 				}
 			}
@@ -505,13 +506,14 @@ func Test_parseFuncDecl(t *testing.T) {
 		},
 	}}
 
+	p := Parser{}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.want.SourceCode.Pos = tt.args.x.Pos()
 			tt.want.SourceCode.End = tt.args.x.End()
 			tt.want.Body = tt.args.x.Body
 
-			if got := parseFuncDecl(tt.args.pkgName, tt.args.x); !reflect.DeepEqual(got, tt.want) {
+			if got := p.ParseFuncDecl(tt.args.pkgName, tt.args.x); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("parseFuncDecl() = %#v, want %#v", got, tt.want)
 			}
 		})
@@ -576,9 +578,11 @@ func TestParseImport(t *testing.T) {
 			Path:  "github.com/ariyn/golang-analyzer/analyzer",
 		},
 	}}
+
+	p := Parser{}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ParseImport(tt.args.is); !reflect.DeepEqual(got, tt.want) {
+			if got := p.ParseImport(tt.args.is); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("ParseImport() = %v, want %v", got, tt.want)
 			}
 		})
@@ -681,11 +685,13 @@ func TestParseFuncCall(t *testing.T) {
 			Name:    "getA().getB",
 		},
 	}}
+
+	p := Parser{}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, fc := getParsedFunctionCall(tt.sourceCode)
 			tt.wantFunctionCall.Pos = int(fc.Pos())
-			if gotFunctionCall := ParseFuncCall(tt.args.pkgName, fc); !reflect.DeepEqual(gotFunctionCall, tt.wantFunctionCall) {
+			if gotFunctionCall := p.ParseFuncCall(tt.args.pkgName, fc); !reflect.DeepEqual(gotFunctionCall, tt.wantFunctionCall) {
 				t.Errorf("ParseFuncCall() = %#v\nwant %#v", gotFunctionCall, tt.wantFunctionCall)
 			}
 		})
