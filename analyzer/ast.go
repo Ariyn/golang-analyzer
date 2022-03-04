@@ -2,7 +2,6 @@ package analyzer
 
 import (
 	"context"
-	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -27,31 +26,6 @@ func (i Import) Caller() string {
 	return i.Name
 }
 
-type Parameter struct {
-	Pkg                  string
-	Name                 string
-	IsPointer            bool
-	Type                 string
-	IsMultipleParameters bool
-}
-
-func (p Parameter) String() string {
-	starExpr := ""
-	if p.IsPointer {
-		starExpr = "*"
-	}
-
-	name := p.Name
-	typ := p.Type
-	if p.IsMultipleParameters {
-		typ = ""
-	} else if name != "" {
-		name = name + " "
-	}
-
-	return fmt.Sprintf("%s%s%s", name, starExpr, typ)
-}
-
 type SourceCode struct {
 	Test, Pos token.Pos
 	End       token.Pos
@@ -59,98 +33,53 @@ type SourceCode struct {
 	File      *os.File
 }
 
-type Parameters []Parameter
+type FilterFunc func(info fs.FileInfo) bool
 
-func (ps Parameters) String() string {
-	prmsString := make([]string, 0)
+type Parser struct {
+	fset            *token.FileSet
+	path            string
+	functionsByName map[string]FunctionStatement
+	functionCalls   []FunctionCall
+	importTable     map[string]Import
+	filter          FilterFunc
+	mode            parser.Mode
+	customInspector func(ctx context.Context, p *Parser, pkgName string) (fch chan FunctionStatement, f func(node ast.Node) bool)
+}
 
-	for _, p := range ps {
-		prmsString = append(prmsString, p.String())
+func NewParser(path string) (p Parser) {
+	p = Parser{
+		fset:            token.NewFileSet(),
+		path:            path,
+		functionsByName: make(map[string]FunctionStatement),
+		functionCalls:   make([]FunctionCall, 0),
+		importTable:     make(map[string]Import),
+		filter: func(info fs.FileInfo) bool {
+			return true
+		},
 	}
 
-	return "(" + strings.Join(prmsString, ", ") + ")"
+	return
 }
 
-type FunctionCall struct {
-	Package             string
-	Receiver            string
-	Name                string
-	Parameters          Parameters
-	FunctionDeclaration FunctionStatement
-	IsImportedFunction  bool
-	File                string
-	FilePath            string
-	Pos                 int
-	LineNumber          int
+func (p *Parser) SetMode(mode parser.Mode) {
+	p.mode = mode
 }
 
-func (fc FunctionCall) Identifier() string {
-	return fc.Name
+func (p *Parser) SetFilter(filter FilterFunc) {
+	p.filter = filter
 }
 
-type FunctionStatement struct {
-	Package    string
-	Receiver   Parameter
-	Name       string
-	Parameters Parameters
-	Returns    Parameters
-	Body       *ast.BlockStmt
-	SourceCode SourceCode
-	Calls      []FunctionCall
-}
-
-func (fs FunctionStatement) Identifier() (idf string) {
-	idfs := []string{fs.Package}
-
-	if fs.Receiver.Type != "" {
-		idfs = append(idfs, fs.Receiver.Type)
-	}
-	idfs = append(idfs, fs.Name)
-
-	return strings.Join(idfs, ".")
-}
-
-func (fs FunctionStatement) String() string {
-	receiver := "(" + fs.Receiver.String() + ") "
-	if fs.Receiver.Type == "" {
-		receiver = ""
-	}
-
-	returns := ""
-	if len(fs.Returns) == 1 {
-		returns = " " + fs.Returns[0].String()
-	} else if len(fs.Returns) > 1 {
-		returns = " " + fs.Returns.String()
-	}
-
-	return fmt.Sprintf("func %s%s%s%s", receiver, fs.Name, fs.Parameters, returns)
-}
-
-// TODO: make these variables into
-var variableTable = make(map[string]interface{})
-var ImportTable = make(map[string]Import)
-var functionsByName = make(map[string]FunctionStatement)
-
-// TODO: make this global variable into channel
-var functionCalls = make([]FunctionCall, 0)
-
-var fset *token.FileSet
-
-func Parse() {
-	log.SetFlags(log.LstdFlags | log.Llongfile)
-	fset = token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, "sample/echo", func(info fs.FileInfo) bool {
-		return true
-	}, 0)
+func (p *Parser) Parse() {
+	pkgs, err := parser.ParseDir(p.fset, p.path, p.filter, p.mode)
 
 	if err != nil {
 		panic(err)
 	}
 
-	functions := []FunctionStatement{}
+	functions := make([]FunctionStatement, 0)
 
 	for pkgName, pkg := range pkgs {
-		fch, insptr := inspector(context.TODO(), pkgName, fset)
+		fch, insptr := inspector(context.TODO(), p, pkgName)
 		go func(fch chan FunctionStatement) {
 			ast.Inspect(pkg, insptr)
 			close(fch)
@@ -161,27 +90,27 @@ func Parse() {
 		}
 	}
 
-	for index, function := range functionCalls {
+	for index, function := range p.functionCalls {
 		identifier := function.Identifier()
 
-		if decl, ok := functionsByName[identifier]; ok {
+		if decl, ok := p.functionsByName[identifier]; ok {
 			function.FunctionDeclaration = decl
 			decl.Calls = append(decl.Calls, function)
 
-			functionsByName[identifier] = decl
+			p.functionsByName[identifier] = decl
 		}
 
-		f := fset.File(token.Pos(function.Pos))
+		f := p.fset.File(token.Pos(function.Pos))
 		function.File = f.Name()
 		function.LineNumber = f.Line(token.Pos(function.Pos))
 
-		functionCalls[index] = function
+		p.functionCalls[index] = function
 	}
 
-	log.Println(len(functionCalls))
+	log.Println(len(p.functionCalls))
 }
 
-func ParseImport(is *ast.ImportSpec) Import {
+func (p *Parser) ParseImport(is *ast.ImportSpec) Import {
 	var alias string
 	if is.Name != nil {
 		alias = is.Name.Name
@@ -203,7 +132,7 @@ func ParseImport(is *ast.ImportSpec) Import {
 	}
 }
 
-func ParseFuncCall(pkgName string, ce *ast.CallExpr) (functionCall FunctionCall) {
+func (p *Parser) ParseFuncCall(pkgName string, ce *ast.CallExpr) (functionCall FunctionCall) {
 	functionCall.Pos = int(ce.Pos())
 	functionCall.Package = pkgName
 
@@ -216,7 +145,7 @@ func ParseFuncCall(pkgName string, ce *ast.CallExpr) (functionCall FunctionCall)
 		} else {
 			switch x2 := x.Obj.Decl.(type) {
 			case *ast.FuncDecl:
-				functionDecl := parseFuncDecl(pkgName, x2)
+				functionDecl := p.ParseFuncDecl(pkgName, x2)
 				functionCall.Name = functionDecl.Identifier()
 			case *ast.AssignStmt:
 				functionCall.Name = pkgName + "." + x2.Lhs[0].(*ast.Ident).Name
@@ -235,88 +164,24 @@ func ParseFuncCall(pkgName string, ce *ast.CallExpr) (functionCall FunctionCall)
 				functionCall.Name = x3.X.(*ast.Ident).Name + "." + x3.Sel.Name
 			}
 		case *ast.SelectorExpr: // TODO: a().b().c().d.e.f() 이처럼, 여러개의 selector가 중첩되어 있을 수 있음. recursive하게 수정 필요.
-			log.Println(x2, x2.Pos(), x2.End(), fset.File(x2.Pos()).Name(), fset.File(x2.Pos()).Line(x2.Pos()))
+			log.Println(x2, x2.Pos(), x2.End(), p.fset.File(x2.Pos()).Name(), p.fset.File(x2.Pos()).Line(x2.Pos()))
 		}
 	}
 
 	return functionCall
 }
 
-func inspector(ctx context.Context, pkgName string, fset *token.FileSet) (fch chan FunctionStatement, f func(node ast.Node) bool) {
-	fch = make(chan FunctionStatement)
-
-	f = func(node ast.Node) bool {
-		// golang does not allow adding method to exported type
-		switch x := node.(type) {
-		case *ast.FuncDecl:
-			function := parseFuncDecl(pkgName, x)
-			tokenFile := fset.File(function.SourceCode.Pos)
-			if file, err := os.Open(tokenFile.Name()); err == nil {
-				b, _ := ioutil.ReadAll(file)
-				if b != nil {
-					function.SourceCode.Data = string(b[tokenFile.Offset(x.Pos())-1 : tokenFile.Offset(x.End())])
-				}
-			}
-			functionsByName[function.Identifier()] = function
-		case *ast.ImportSpec:
-			imp := ParseImport(x)
-			ImportTable[imp.Caller()] = imp
-		case *ast.CallExpr:
-			functionCall := ParseFuncCall(pkgName, x)
-			functionCalls = append(functionCalls, functionCall)
-		}
-		return true
-	}
-
-	return
-}
-
-func parseParameters(p *ast.Field) (parameters Parameters) {
-
-	var prm Parameter
-
-	switch prmType := p.Type.(type) {
-	case *ast.Ident:
-		prm.Type = prmType.Name
-	case *ast.StarExpr:
-		prm.IsPointer = true
-
-		switch xx := prmType.X.(type) {
-		case *ast.Ident:
-			prm.Type = xx.Name
-		case *ast.SelectorExpr:
-			prm.Type = xx.X.(*ast.Ident).Name + "." + xx.Sel.Name // FIXME: replace type into Typ type
-		}
-	case *ast.SelectorExpr: // use exported type for parameter type
-		prm.Type = prmType.X.(*ast.Ident).Name + "." + prmType.Sel.Name // FIXME: replace type into Typ type
-	}
-
-	if len(p.Names) == 0 {
-		parameters = append(parameters, prm)
-		return
-	}
-
-	for index, parameterName := range p.Names {
-		prm.Name = parameterName.Name
-		prm.IsMultipleParameters = index+1 != len(p.Names)
-
-		parameters = append(parameters, prm)
-	}
-
-	return
-}
-
-func parseFuncDecl(pkgName string, x *ast.FuncDecl) FunctionStatement {
+func (p *Parser) ParseFuncDecl(pkgName string, x *ast.FuncDecl) FunctionStatement {
 	var receiver Parameter
 	if x.Recv != nil {
-		receiver = parseParameters(x.Recv.List[0])[0]
+		receiver = p.ParseParameters(x.Recv.List[0])[0]
 		receiver.Pkg = pkgName
 	}
 
 	parameters := make(Parameters, 0)
 	if x.Type.Params != nil {
-		for _, p := range x.Type.Params.List {
-			prms := parseParameters(p)
+		for _, parms := range x.Type.Params.List {
+			prms := p.ParseParameters(parms)
 
 			for index, prm := range prms {
 				prm.Pkg = pkgName
@@ -330,7 +195,7 @@ func parseFuncDecl(pkgName string, x *ast.FuncDecl) FunctionStatement {
 	returns := make(Parameters, 0)
 	if x.Type.Results != nil {
 		for _, r := range x.Type.Results.List {
-			rtrns := parseParameters(r)
+			rtrns := p.ParseParameters(r)
 
 			for index, rst := range rtrns {
 				rst.Pkg = pkgName
@@ -353,4 +218,68 @@ func parseFuncDecl(pkgName string, x *ast.FuncDecl) FunctionStatement {
 			End: x.End(),
 		},
 	}
+}
+
+func (p *Parser) ParseParameters(field *ast.Field) (parameters Parameters) {
+
+	var prm Parameter
+
+	switch prmType := field.Type.(type) {
+	case *ast.Ident:
+		prm.Type = prmType.Name
+	case *ast.StarExpr:
+		prm.IsPointer = true
+
+		switch xx := prmType.X.(type) {
+		case *ast.Ident:
+			prm.Type = xx.Name
+		case *ast.SelectorExpr:
+			prm.Type = xx.X.(*ast.Ident).Name + "." + xx.Sel.Name // FIXME: replace type into Typ type
+		}
+	case *ast.SelectorExpr: // use exported type for parameter type
+		prm.Type = prmType.X.(*ast.Ident).Name + "." + prmType.Sel.Name // FIXME: replace type into Typ type
+	}
+
+	if len(field.Names) == 0 {
+		parameters = append(parameters, prm)
+		return
+	}
+
+	for index, parameterName := range field.Names {
+		prm.Name = parameterName.Name
+		prm.IsMultipleParameters = index+1 != len(field.Names)
+
+		parameters = append(parameters, prm)
+	}
+
+	return
+}
+
+func inspector(ctx context.Context, p *Parser, pkgName string) (fch chan FunctionStatement, f func(node ast.Node) bool) {
+	fch = make(chan FunctionStatement)
+
+	f = func(node ast.Node) bool {
+		// golang does not allow adding method to exported type
+		switch x := node.(type) {
+		case *ast.FuncDecl:
+			function := p.ParseFuncDecl(pkgName, x)
+			tokenFile := p.fset.File(function.SourceCode.Pos)
+			if file, err := os.Open(tokenFile.Name()); err == nil {
+				b, _ := ioutil.ReadAll(file)
+				if b != nil {
+					function.SourceCode.Data = string(b[tokenFile.Offset(x.Pos())-1 : tokenFile.Offset(x.End())])
+				}
+			}
+			p.functionsByName[function.Identifier()] = function
+		case *ast.ImportSpec:
+			imp := p.ParseImport(x)
+			p.importTable[imp.Caller()] = imp
+		case *ast.CallExpr:
+			functionCall := p.ParseFuncCall(pkgName, x)
+			p.functionCalls = append(p.functionCalls, functionCall)
+		}
+		return true
+	}
+
+	return
 }
