@@ -27,15 +27,6 @@ func (i Import) Caller() string {
 	return i.Name
 }
 
-//type Typ struct {
-//	Name string
-//	Pkg  string
-//}
-//
-//func (t Typ) String() string {
-//	return ""
-//}
-
 type Parameter struct {
 	Pkg                  string
 	Name                 string
@@ -184,19 +175,10 @@ func Parse() {
 		function.File = f.Name()
 		function.LineNumber = f.Line(token.Pos(function.Pos))
 
-		//if !ok && !function.IsImportedFunction {
-		//	panic(fmt.Errorf("not declared function called (%s)", function.Identifier()))
-		//}
-
 		functionCalls[index] = function
 	}
 
 	log.Println(len(functionCalls))
-	//for _, function := range functionCalls {
-	//	if !function.IsImportedFunction {
-	//		log.Println(function.File, function.Identifier(), function.LineNumber, "delcation", function.FunctionDeclaration.SourceCode.Data)
-	//	}
-	//}
 }
 
 func ParseImport(is *ast.ImportSpec) Import {
