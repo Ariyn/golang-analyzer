@@ -79,7 +79,15 @@ func (p *Parser) Parse() {
 	functions := make([]FunctionStatement, 0)
 
 	for pkgName, pkg := range pkgs {
-		fch, insptr := inspector(context.TODO(), p, pkgName)
+		var fch chan FunctionStatement
+		var insptr func(node ast.Node) bool
+
+		if p.customInspector != nil {
+			fch, insptr = p.customInspector(context.TODO(), p, pkgName)
+		} else {
+			fch, insptr = inspector(context.TODO(), p, pkgName)
+		}
+
 		go func(fch chan FunctionStatement) {
 			ast.Inspect(pkg, insptr)
 			close(fch)
@@ -106,8 +114,6 @@ func (p *Parser) Parse() {
 
 		p.functionCalls[index] = function
 	}
-
-	log.Println(len(p.functionCalls))
 }
 
 func (p *Parser) ParseImport(is *ast.ImportSpec) Import {
