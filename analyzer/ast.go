@@ -43,7 +43,7 @@ type Parser struct {
 	importTable     map[string]Import
 	filter          FilterFunc
 	mode            parser.Mode
-	customInspector func(ctx context.Context, p *Parser, pkgName string) (fch chan FunctionStatement, f func(node ast.Node) bool)
+	inspector       func(ctx context.Context, p *Parser, pkgName string) (fch chan FunctionStatement, f func(node ast.Node) bool)
 }
 
 func NewParser(path string) (p Parser) {
@@ -56,6 +56,7 @@ func NewParser(path string) (p Parser) {
 		filter: func(info fs.FileInfo) bool {
 			return true
 		},
+		inspector: inspector,
 	}
 
 	return
@@ -79,14 +80,8 @@ func (p *Parser) Parse() {
 	functions := make([]FunctionStatement, 0)
 
 	for pkgName, pkg := range pkgs {
-		var fch chan FunctionStatement
-		var insptr func(node ast.Node) bool
 
-		if p.customInspector != nil {
-			fch, insptr = p.customInspector(context.TODO(), p, pkgName)
-		} else {
-			fch, insptr = inspector(context.TODO(), p, pkgName)
-		}
+		fch, insptr := p.inspector(context.TODO(), p, pkgName)
 
 		go func(fch chan FunctionStatement) {
 			ast.Inspect(pkg, insptr)
