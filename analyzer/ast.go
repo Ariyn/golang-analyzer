@@ -70,6 +70,10 @@ func (p *Parser) SetFilter(filter FilterFunc) {
 	p.filter = filter
 }
 
+func (p Parser) FuncCalls() []FunctionCall {
+	return p.functionCalls
+}
+
 func (p *Parser) Parse() {
 	pkgs, err := parser.ParseDir(p.fset, p.path, p.filter, p.mode)
 
