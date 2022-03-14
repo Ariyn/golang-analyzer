@@ -21,7 +21,7 @@ func main() {
 	checkResult(result)
 	log.Println(b2, b3)
 
-	sample2()
+	sampleFunc1()
 }
 
 // getB is test function

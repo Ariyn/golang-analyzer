@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 )
 
 type Import struct {
@@ -72,6 +73,51 @@ func (p *Parser) SetFilter(filter FilterFunc) {
 
 func (p Parser) FuncCalls() []FunctionCall {
 	return p.functionCalls
+}
+
+func (p Parser) Functions() (functions []FunctionStatement) {
+	for _, f := range p.functionsByName {
+		functions = append(functions, f)
+	}
+	return
+}
+
+func (p *Parser) ParseFile(source string) {
+	pkgs, err := parser.ParseFile(p.fset, p.path, source, p.mode)
+
+	if err != nil {
+		panic(err)
+	}
+
+	functions := make([]FunctionStatement, 0)
+
+	fch, insptr := p.inspector(context.TODO(), p, pkgs.Name.Name)
+
+	go func(fch chan FunctionStatement) {
+		ast.Inspect(pkgs, insptr)
+		close(fch)
+	}(fch)
+
+	for function := range fch {
+		functions = append(functions, function)
+	}
+
+	for index, function := range p.functionCalls {
+		identifier := function.Identifier()
+
+		if decl, ok := p.functionsByName[identifier]; ok {
+			function.FunctionDeclaration = decl
+			decl.Calls = append(decl.Calls, function)
+
+			p.functionsByName[identifier] = decl
+		}
+
+		f := p.fset.File(token.Pos(function.Pos))
+		function.File = f.Name()
+		function.LineNumber = f.Line(token.Pos(function.Pos))
+
+		p.functionCalls[index] = function
+	}
 }
 
 func (p *Parser) Parse() {
@@ -137,9 +183,34 @@ func (p *Parser) ParseImport(is *ast.ImportSpec) Import {
 	}
 }
 
+func parseArgs(args []ast.Expr) (parms Parameters) {
+	for _, a := range args {
+		var p Parameter
+
+		switch x := a.(type) {
+		case *ast.Ident:
+			p = Parameter{
+				Name: x.Name,
+			}
+
+			log.Printf("%#v, %#v", x, x.Obj.Decl)
+		case *ast.BasicLit:
+			p = Parameter{
+				Name: x.Value,
+			}
+		}
+
+		parms = append(parms, p)
+	}
+
+	return
+}
+
 func (p *Parser) ParseFuncCall(pkgName string, ce *ast.CallExpr) (functionCall FunctionCall) {
 	functionCall.Pos = int(ce.Pos())
 	functionCall.Package = pkgName
+
+	functionCall.Parameters = parseArgs(ce.Args)
 
 	// TODO: import된 함수에 대해서, package가 잘 파싱되지 않을 가능성이 있음
 	switch x := ce.Fun.(type) {
@@ -260,12 +331,24 @@ func (p *Parser) ParseParameters(field *ast.Field) (parameters Parameters) {
 	return
 }
 
+var Nodes []ast.Node
+var mu sync.Mutex
+
 func inspector(ctx context.Context, p *Parser, pkgName string) (fch chan FunctionStatement, f func(node ast.Node) bool) {
 	fch = make(chan FunctionStatement)
 
+	Nodes = make([]ast.Node, 0)
+
 	f = func(node ast.Node) bool {
 		// golang does not allow adding method to exported type
+
+		mu.Lock()
+		Nodes = append(Nodes, node)
+		mu.Unlock()
+
 		switch x := node.(type) {
+		case *ast.FuncType:
+			//log.Printf("%#v", x)
 		case *ast.FuncDecl:
 			function := p.ParseFuncDecl(pkgName, x)
 			tokenFile := p.fset.File(function.SourceCode.Pos)

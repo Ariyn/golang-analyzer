@@ -23,6 +23,10 @@ func (fc FunctionCall) Identifier() string {
 	return fc.Name
 }
 
+func (fc FunctionCall) Position() string {
+	return fmt.Sprintf("%s:%d", fc.File, fc.LineNumber)
+}
+
 type FunctionStatement struct {
 	Package    string
 	Receiver   Parameter
