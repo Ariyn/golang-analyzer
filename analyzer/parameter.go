@@ -11,6 +11,7 @@ type Parameter struct {
 	IsPointer            bool
 	Type                 string
 	IsMultipleParameters bool
+	IsArgument           bool
 }
 
 func (p Parameter) String() string {
@@ -23,7 +24,7 @@ func (p Parameter) String() string {
 	typ := p.Type
 	if p.IsMultipleParameters {
 		typ = ""
-	} else if name != "" {
+	} else if name != "" && !p.IsArgument {
 		name = name + " "
 	}
 

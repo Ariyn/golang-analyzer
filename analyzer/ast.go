@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"context"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -187,17 +188,14 @@ func parseArgs(args []ast.Expr) (parms Parameters) {
 	for _, a := range args {
 		var p Parameter
 
+		p.IsArgument = true
+
 		switch x := a.(type) {
 		case *ast.Ident:
-			p = Parameter{
-				Name: x.Name,
-			}
-
-			log.Printf("%#v, %#v", x, x.Obj.Decl)
+			p.Name = x.Name
+			//log.Printf("%#v, %#v", x, x.Obj.Decl)
 		case *ast.BasicLit:
-			p = Parameter{
-				Name: x.Value,
-			}
+			p.Name = x.Value
 		}
 
 		parms = append(parms, p)
@@ -207,6 +205,8 @@ func parseArgs(args []ast.Expr) (parms Parameters) {
 }
 
 func (p *Parser) ParseFuncCall(pkgName string, ce *ast.CallExpr) (functionCall FunctionCall) {
+	pos := p.fset.Position(ce.Pos())
+
 	functionCall.Pos = int(ce.Pos())
 	functionCall.Package = pkgName
 
@@ -227,24 +227,96 @@ func (p *Parser) ParseFuncCall(pkgName string, ce *ast.CallExpr) (functionCall F
 				functionCall.Name = pkgName + "." + x2.Lhs[0].(*ast.Ident).Name
 			}
 		}
-	case *ast.SelectorExpr: // TODO: 현재 두번 이상 selector가 들어있다면 파싱에 오류가 생김.
-		switch x2 := x.X.(type) {
-		case *ast.Ident:
-			functionCall.Name = x2.Name + "." + x.Sel.Name
-			functionCall.IsImportedFunction = x2.Obj == nil
-		case *ast.CallExpr:
-			switch x3 := x2.Fun.(type) {
-			case *ast.Ident:
-				functionCall.Name = x3.Name + "()" + "." + x.Sel.Name // TODO: x3.Name이 아니라, x3()가 리턴하는 타입이 들어가야 함
-			case *ast.SelectorExpr:
-				functionCall.Name = x3.X.(*ast.Ident).Name + "." + x3.Sel.Name
-			}
-		case *ast.SelectorExpr: // TODO: a().b().c().d.e.f() 이처럼, 여러개의 selector가 중첩되어 있을 수 있음. recursive하게 수정 필요.
-			log.Println(x2, x2.Pos(), x2.End(), p.fset.File(x2.Pos()).Name(), p.fset.File(x2.Pos()).Line(x2.Pos()))
+	case *ast.SelectorExpr: // sample/echo/response.go:87 &ast.SelectorExpr
+		s := p.ParseSelector(pkgName, x)
+		functionCall.Name = s.String()
+	case *ast.ParenExpr: // sample/echo/bind_test.go:280 *ast.ParenExpr
+		log.Printf("%s:%d %#v", pos.Filename, pos.Line, x.X)
+	case *ast.CallExpr: // sample/echo/ip.go:101 *ast.CallExpr
+		functionCall.Name = p.ParseFuncCall(pkgName, x).String()
+		log.Printf("%s:%d %#v %#v", pos.Filename, pos.Line, x.Fun, x.Args)
+	case *ast.ArrayType: // sample/echo/context_test.go:680 *ast.ArrayType
+		log.Printf("%s:%d %#v %#v", pos.Filename, pos.Line, x.Elt, x.Len)
+	case *ast.IndexExpr: // sample/echo/echo.go:961 *ast.IndexExpr
+		functionCall.Name = p.ParseArray(pkgName, x).String()
+		log.Printf("%s:%d %#v %#v", pos.Filename, pos.Line, x.X, x.Index)
+	case *ast.FuncLit: // sample/echo/echo_test.go:1423 *ast.FuncLit
+		log.Printf("%s:%d %#v, %#v", pos.Filename, pos.Line, x.Type, x.Body)
+	case *ast.InterfaceType: // sample/echo/echo_test.go:1068 *ast.InterfaceType
+		//log.Printf("%s:%d %#v", pos.Filename, pos.Line, )
+		//functions := make([]string, 0)
+		for _, f := range x.Methods.List {
+			log.Printf("%#v %#v %#v", f.Tag, f.Type, f.Names)
 		}
+		functionCall.Name = fmt.Sprintf("interface{%#v}", x.Methods)
+	default:
+		log.Printf("unknown case %s:%d (%#v)", pos.Filename, pos.Line, x)
 	}
 
 	return functionCall
+}
+
+func (p *Parser) ParseSelector(pkgName string, x *ast.SelectorExpr) (s Selector) {
+	pos := p.fset.Position(x.X.Pos())
+
+	s.Parent = x.Sel.Name
+	switch x2 := x.X.(type) {
+	case *ast.Ident:
+		s.Field = Variable{Name: x2.Name}
+		s.ImportedSelector = x2.Obj == nil
+	case *ast.CallExpr:
+		s.Field = p.ParseFuncCall(pkgName, x2)
+	case *ast.SelectorExpr: // TODO: a().b().c().d.e.f() 이처럼, 여러개의 selector가 중첩되어 있을 수 있음. recursive하게 수정 필요.
+		//log.Println(x2, x2.Pos(), x2.End(), p.fset.File(x2.Pos()).Name(), p.fset.File(x2.Pos()).Line(x2.Pos()))
+		s.Field = p.ParseSelector(pkgName, x2)
+	case *ast.TypeAssertExpr:
+		typ := p.ParseType(pkgName, x2.Type)
+		s.Field = typ
+	case *ast.UnaryExpr: // sample/echo/bind_test.go:280 *ast.UnaryExpr
+		log.Printf("%#v, %#v", x2.Op, x2.X)
+		log.Println(pos.Filename, pos.Line, s.Parent)
+	case *ast.IndexExpr: // sample/echo/router_test.go:2466 *ast.IndexExpr
+		//log.Printf("%#v, %#v", x2.X, x2.Index)
+		//log.Println(pos.Filename, pos.Line, s.Parent)
+		s.Field = p.ParseArray(pkgName, x2)
+	case *ast.ParenExpr: // sample/echo/bind_test.go:280 *ast.ParenExpr
+		log.Printf("%s:%d %#v", pos.Filename, pos.Line, x2.X)
+		s.Field = p.ParseType(pkgName, x2.X)
+	default:
+		log.Printf("unknown case %s:%d (%#v)", pos.Filename, pos.Line, x2)
+	}
+
+	return
+}
+
+func (p *Parser) ParseArray(pkgName string, x *ast.IndexExpr) (a Array) {
+	a.Name = p.ParseType(pkgName, x.X).String()
+	a.Index = p.ParseType(pkgName, x.Index).String()
+
+	return
+}
+
+func (p *Parser) ParseType(pkgName string, x ast.Expr) (t Type) {
+	pos := p.fset.Position(x.Pos())
+
+	switch x2 := x.(type) {
+	case *ast.StarExpr:
+		t = p.ParseType(pkgName, x2.X)
+	case *ast.Ident:
+		//log.Println(x2.Name)
+		t.Name = x2.Name
+	case *ast.SelectorExpr:
+		s := p.ParseSelector(pkgName, x2)
+		t.Name = s.String()
+	case *ast.BinaryExpr: // sample/echo/router_test.go:2469 *ast.Binary
+		//log.Printf("binary %s:%d %#v %#v %#v", pos.Filename, pos.Line, x2.X, x2.Op.String(), x2.Y)
+		t.Name = fmt.Sprintf("%s %s %s", p.ParseType(pkgName, x2.X), x2.Op, p.ParseType(pkgName, x2.Y))
+	case *ast.BasicLit: // sample/echo/router_test.go:2469 *ast.BasicLit
+	default:
+		log.Printf("unknown %s:%d %#v", pos.Filename, pos.Line, x2)
+	}
+
+	return
 }
 
 func (p *Parser) ParseFuncDecl(pkgName string, x *ast.FuncDecl) FunctionStatement {

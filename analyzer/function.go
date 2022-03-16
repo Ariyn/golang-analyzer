@@ -6,6 +6,49 @@ import (
 	"strings"
 )
 
+type Field interface {
+	String() string
+}
+
+type Selector struct {
+	Parent           string
+	Field            Field
+	ImportedSelector bool
+}
+
+func (s Selector) String() string {
+	return fmt.Sprintf("%s.%s", s.Field.String(), s.Parent)
+}
+
+type Array struct {
+	Name  string
+	Index string
+}
+
+func (a Array) String() string {
+	return fmt.Sprintf("%s[%s]", a.Name, a.Index)
+}
+
+type BinaryOperator struct {
+}
+
+type Type struct {
+	Name string
+}
+
+func (t Type) String() string {
+	return t.Name
+}
+
+type Variable struct {
+	Name string
+	Type string
+}
+
+func (v Variable) String() string {
+	return v.Name
+}
+
 type FunctionCall struct {
 	Package             string
 	Receiver            string
@@ -25,6 +68,10 @@ func (fc FunctionCall) Identifier() string {
 
 func (fc FunctionCall) Position() string {
 	return fmt.Sprintf("%s:%d", fc.File, fc.LineNumber)
+}
+
+func (fc FunctionCall) String() string {
+	return fmt.Sprintf("%s(%s)", fc.Name, fc.Parameters.String())
 }
 
 type FunctionStatement struct {
