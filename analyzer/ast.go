@@ -14,6 +14,11 @@ import (
 	"sync"
 )
 
+const (
+	breakLine = 1199
+	breakFile = "sample/echo/binder_test.go"
+)
+
 type Import struct {
 	Name  string
 	Alias string
@@ -184,25 +189,36 @@ func (p *Parser) ParseImport(is *ast.ImportSpec) Import {
 	}
 }
 
-func parseArgs(args []ast.Expr) (parms Parameters) {
+func (p *Parser) ParseArgs(pkgName string, args []ast.Expr) (parms Parameters) {
 	for _, a := range args {
-		var p Parameter
+		//pos := p.fset.Position(a.Pos())
 
-		p.IsArgument = true
+		var prm Parameter
 
-		switch x := a.(type) {
-		case *ast.Ident:
-			p.Name = x.Name
-			//log.Printf("%#v, %#v", x, x.Obj.Decl)
-		case *ast.BasicLit:
-			p.Name = x.Value
-		}
+		prm.IsArgument = true
 
-		parms = append(parms, p)
+		prm.Name = p.ParseType(pkgName, a).String()
+
+		//switch x := a.(type) {
+		//case *ast.Ident:
+		//	prm.Name = x.Name
+		//	//log.Printf("%#v, %#v", x, x.Obj.Decl)
+		//case *ast.BasicLit:
+		//	prm.Name = x.Value
+		//case *ast.CallExpr:
+		//	prm.Name = p.ParseFuncCall(pkgName, x).String()
+		//case
+		//default:
+		//	log.Printf("unknown case %s:%d (%#v)", pos.Filename, pos.Line, x)
+		//}
+
+		parms = append(parms, prm)
 	}
 
 	return
 }
+
+// TODO: p.ParseExpr( expr ast.Expr)이 필요한거 아닐까? 계속 recursive하게 호출해서 내가 원하는 타입을 리턴받을 수 있도록 (리턴도 interface로 받아서 타입 체크 해야할 듯)
 
 func (p *Parser) ParseFuncCall(pkgName string, ce *ast.CallExpr) (functionCall FunctionCall) {
 	pos := p.fset.Position(ce.Pos())
@@ -210,7 +226,7 @@ func (p *Parser) ParseFuncCall(pkgName string, ce *ast.CallExpr) (functionCall F
 	functionCall.Pos = int(ce.Pos())
 	functionCall.Package = pkgName
 
-	functionCall.Parameters = parseArgs(ce.Args)
+	functionCall.Parameters = p.ParseArgs(pkgName, ce.Args)
 
 	// TODO: import된 함수에 대해서, package가 잘 파싱되지 않을 가능성이 있음
 	switch x := ce.Fun.(type) {
@@ -231,17 +247,55 @@ func (p *Parser) ParseFuncCall(pkgName string, ce *ast.CallExpr) (functionCall F
 		s := p.ParseSelector(pkgName, x)
 		functionCall.Name = s.String()
 	case *ast.ParenExpr: // sample/echo/bind_test.go:280 *ast.ParenExpr
-		log.Printf("%s:%d %#v", pos.Filename, pos.Line, x.X)
+		//log.Printf("%s:%d %#v", pos.Filename, pos.Line, x.X)
+		functionCall.Name = "(" + p.ParseType(pkgName, x.X).String() + ")"
 	case *ast.CallExpr: // sample/echo/ip.go:101 *ast.CallExpr
 		functionCall.Name = p.ParseFuncCall(pkgName, x).String()
-		log.Printf("%s:%d %#v %#v", pos.Filename, pos.Line, x.Fun, x.Args)
+		//log.Printf("%s:%d %#v %#v", pos.Filename, pos.Line, x.Fun, x.Args)
 	case *ast.ArrayType: // sample/echo/context_test.go:680 *ast.ArrayType
-		log.Printf("%s:%d %#v %#v", pos.Filename, pos.Line, x.Elt, x.Len)
+		//log.Printf("%s:%d %#v %#v", pos.Filename, pos.Line, x.Elt, x.Len)
+		size := ""
+		if x.Len != nil {
+			log.Printf("%#v", x.Len)
+		}
+
+		functionCall.Name = "[" + size + "]" + p.ParseType(pkgName, x.Elt).String()
 	case *ast.IndexExpr: // sample/echo/echo.go:961 *ast.IndexExpr
 		functionCall.Name = p.ParseArray(pkgName, x).String()
-		log.Printf("%s:%d %#v %#v", pos.Filename, pos.Line, x.X, x.Index)
+		//log.Printf("%s:%d %#v %#v", pos.Filename, pos.Line, x.X, x.Index)
 	case *ast.FuncLit: // sample/echo/echo_test.go:1423 *ast.FuncLit
-		log.Printf("%s:%d %#v, %#v", pos.Filename, pos.Line, x.Type, x.Body)
+		//log.Printf("%s:%d %#v, %#v", pos.Filename, pos.Line, x.Type, x.Body)
+
+		parameters := make(Parameters, 0)
+
+		if x.Type.Params != nil {
+			for _, parms := range x.Type.Params.List {
+				prms := p.ParseParameters(parms)
+
+				for index, prm := range prms {
+					prm.Pkg = pkgName
+					prms[index] = prm
+				}
+
+				parameters = append(parameters, prms...)
+			}
+		}
+
+		results := make(Parameters, 0)
+		if x.Type.Results != nil {
+			for _, parms := range x.Type.Results.List {
+				prms := p.ParseParameters(parms)
+
+				for index, prm := range prms {
+					prm.Pkg = pkgName
+					prms[index] = prm
+				}
+
+				results = append(results, prms...)
+			}
+		}
+
+		functionCall.Name = "func(" + parameters.String() + ") (" + results.String() + ")"
 	case *ast.InterfaceType: // sample/echo/echo_test.go:1068 *ast.InterfaceType
 		//log.Printf("%s:%d %#v", pos.Filename, pos.Line, )
 		//functions := make([]string, 0)
@@ -280,7 +334,7 @@ func (p *Parser) ParseSelector(pkgName string, x *ast.SelectorExpr) (s Selector)
 		//log.Println(pos.Filename, pos.Line, s.Parent)
 		s.Field = p.ParseArray(pkgName, x2)
 	case *ast.ParenExpr: // sample/echo/bind_test.go:280 *ast.ParenExpr
-		log.Printf("%s:%d %#v", pos.Filename, pos.Line, x2.X)
+		//log.Printf("%s:%d %#v", pos.Filename, pos.Line, x2.X)
 		s.Field = p.ParseType(pkgName, x2.X)
 	default:
 		log.Printf("unknown case %s:%d (%#v)", pos.Filename, pos.Line, x2)
@@ -297,6 +351,9 @@ func (p *Parser) ParseArray(pkgName string, x *ast.IndexExpr) (a Array) {
 }
 
 func (p *Parser) ParseType(pkgName string, x ast.Expr) (t Type) {
+	if x == nil {
+		return
+	}
 	pos := p.fset.Position(x.Pos())
 
 	switch x2 := x.(type) {
@@ -312,6 +369,99 @@ func (p *Parser) ParseType(pkgName string, x ast.Expr) (t Type) {
 		//log.Printf("binary %s:%d %#v %#v %#v", pos.Filename, pos.Line, x2.X, x2.Op.String(), x2.Y)
 		t.Name = fmt.Sprintf("%s %s %s", p.ParseType(pkgName, x2.X), x2.Op, p.ParseType(pkgName, x2.Y))
 	case *ast.BasicLit: // sample/echo/router_test.go:2469 *ast.BasicLit
+	case *ast.UnaryExpr: // sample/echo/bind_test.go:280 *ast.UnaryExpr
+		t.Name = x2.Op.String() + p.ParseType(pkgName, x2.X).String()
+	case *ast.CompositeLit: // sample/echo/bind_test.go:280 *ast.CompositeLit
+		//for _, b := range x2.Elts {
+		//	log.Println(p.ParseType(pkgName, b))
+		//}
+		t.Name = p.ParseType(pkgName, x2.Type).String() + "{}"
+	case *ast.CallExpr:
+		t.Name = p.ParseFuncCall(pkgName, x2).String()
+	case *ast.IndexExpr: // sample/echo/echo.go:961 *ast.IndexExpr
+		t.Name = p.ParseArray(pkgName, x2).String()
+	case *ast.ArrayType: // sample/echo/context_test.go:680 *ast.ArrayType
+		//log.Printf("%s:%d %#v %#v", pos.Filename, pos.Line, x.Elt, x.Len)
+		size := ""
+		if x2.Len != nil {
+			log.Printf("%#v", x2.Len)
+		}
+
+		t.Name = "[" + size + "]" + p.ParseType(pkgName, x2.Elt).String()
+	case *ast.FuncLit: // sample/echo/echo_test.go:1423 *ast.FuncLit
+		//log.Printf("%s:%d %#v, %#v", pos.Filename, pos.Line, x.Type, x.Body)
+
+		parameters := make(Parameters, 0)
+
+		if x2.Type.Params != nil {
+			for _, parms := range x2.Type.Params.List {
+				prms := p.ParseParameters(parms)
+
+				for index, prm := range prms {
+					prm.Pkg = pkgName
+					prms[index] = prm
+				}
+
+				parameters = append(parameters, prms...)
+			}
+		}
+
+		results := make(Parameters, 0)
+		if x2.Type.Results != nil {
+			for _, parms := range x2.Type.Results.List {
+				prms := p.ParseParameters(parms)
+
+				for index, prm := range prms {
+					prm.Pkg = pkgName
+					prms[index] = prm
+				}
+
+				results = append(results, prms...)
+			}
+		}
+
+		t.Name = "func(" + parameters.String() + ") (" + results.String() + ")"
+	case *ast.MapType: // sample/echo/binder_test.go:63 *ast.MapType
+		t.Name = "map[" + p.ParseType(pkgName, x2.Key).String() + "]" + p.ParseType(pkgName, x2.Value).String()
+	case *ast.ChanType: // sample/echo/context_test.go:173 *ast.ChanType
+		dir := x2.Dir
+		t.Name = "chan"
+
+		if dir == ast.RECV {
+			t.Name = "<-" + t.Name
+		} else {
+			t.Name = t.Name + "<-"
+		}
+
+		t.Name += p.ParseType(pkgName, x2.Value).String()
+	case *ast.StructType: // sample/echo/context_test.go:720 *ast.StructType
+
+		fields := make(Parameters, 0)
+		if x2.Fields != nil {
+			for _, parms := range x2.Fields.List {
+				prms := p.ParseParameters(parms)
+
+				for index, prm := range prms {
+					prm.Pkg = pkgName
+					prms[index] = prm
+				}
+
+				fields = append(fields, prms...)
+			}
+		}
+
+		t.Name = "struct {" + fields.String() + "}"
+	case *ast.SliceExpr: // sample/echo/context.go:285 *ast.SliceExpr
+		low := p.ParseType(pkgName, x2.Low).String()
+		high := p.ParseType(pkgName, x2.High).String()
+		max := p.ParseType(pkgName, x2.Max).String()
+
+		index := low + ":" + high
+		if x2.Slice3 {
+			index += ":" + max
+		}
+		t.Name = p.ParseType(pkgName, x2.X).String() + "[" + index + "]"
+	case *ast.InterfaceType: // sample/echo/echo_test.go:1083 *ast.InterfaceType
 	default:
 		log.Printf("unknown %s:%d %#v", pos.Filename, pos.Line, x2)
 	}
@@ -414,9 +564,19 @@ func inspector(ctx context.Context, p *Parser, pkgName string) (fch chan Functio
 	f = func(node ast.Node) bool {
 		// golang does not allow adding method to exported type
 
+		if node == nil {
+			return false
+		}
+
 		mu.Lock()
 		Nodes = append(Nodes, node)
 		mu.Unlock()
+
+		//pos := p.fset.Position(node.Pos())
+		//file := p.fset.File(node.Pos())
+		//if pos.Line == breakLine && file.Name() == breakFile {
+		//	log.Printf("%s:%d %#v", file.Name(), pos.Line, node)
+		//}
 
 		switch x := node.(type) {
 		case *ast.FuncType:

@@ -71,7 +71,7 @@ func (fc FunctionCall) Position() string {
 }
 
 func (fc FunctionCall) String() string {
-	return fmt.Sprintf("%s(%s)", fc.Name, fc.Parameters.String())
+	return fmt.Sprintf("%s%s", fc.Name, fc.Parameters.String())
 }
 
 type FunctionStatement struct {
