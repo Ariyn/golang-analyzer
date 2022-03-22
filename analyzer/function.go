@@ -41,8 +41,9 @@ func (t Type) String() string {
 }
 
 type Variable struct {
-	Name string
-	Type string
+	Name      string
+	Type      string
+	IsPointer bool
 }
 
 func (v Variable) String() string {

@@ -327,6 +327,7 @@ func (p *Parser) ParseType(pkgName string, x ast.Expr) (t Type) {
 		//log.Printf("binary %s:%d %#v %#v %#v", pos.Filename, pos.Line, x2.X, x2.Op.String(), x2.Y)
 		t.Name = fmt.Sprintf("%s %s %s", p.ParseType(pkgName, x2.X), x2.Op, p.ParseType(pkgName, x2.Y))
 	case *ast.BasicLit: // sample/echo/router_test.go:2469 *ast.BasicLit
+		t.Name = x2.Value
 	case *ast.UnaryExpr: // sample/echo/bind_test.go:280 *ast.UnaryExpr
 		t.Name = x2.Op.String() + p.ParseType(pkgName, x2.X).String()
 	case *ast.CompositeLit: // sample/echo/bind_test.go:280 *ast.CompositeLit
@@ -503,6 +504,14 @@ func (p *Parser) ParseParameters(field *ast.Field) (parameters Parameters) {
 		}
 	case *ast.SelectorExpr: // use exported type for parameter type
 		prm.Type = prmType.X.(*ast.Ident).Name + "." + prmType.Sel.Name // FIXME: replace type into Typ type
+	case *ast.ArrayType: // sample/echo/context_test.go:680 *ast.ArrayType
+		//log.Printf("%s:%d %#v %#v", pos.Filename, pos.Line, x.Elt, x.Len)
+		size := ""
+		if prmType.Len != nil {
+			log.Printf("%#v", prmType.Len)
+		}
+		//log.Printf("%#v", prmType)
+		prm.Type = "[" + size + "]" + p.ParseType("", prmType.Elt).String()
 	}
 
 	if len(field.Names) == 0 {
