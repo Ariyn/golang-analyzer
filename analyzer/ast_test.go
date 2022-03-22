@@ -504,18 +504,34 @@ func Test_parseFuncDecl(t *testing.T) {
 				Type: "sampleStruct",
 			},
 		},
+	}, {
+		name: "파라미터가 슬라이스인 함수를 파싱하는 경우",
+		args: args{
+			pkgName: pkgName,
+			x:       getParsedFuncDecl("func(a []sampleStruct) sampleFunc() {}"),
+		},
+		want: FunctionStatement{
+			Package:    pkgName,
+			Name:       "sampleFunc",
+			Parameters: Parameters{},
+			Returns:    Parameters{},
+			Receiver: Parameter{
+				Pkg:  pkgName,
+				Name: "a",
+				Type: "[]sampleStruct",
+			},
+		},
 	}}
 
-	p := Parser{}
+	p := Parser{fset: token.NewFileSet()}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.want.SourceCode.Pos = tt.args.x.Pos()
 			tt.want.SourceCode.End = tt.args.x.End()
 			tt.want.Body = tt.args.x.Body
 
-			if got := p.ParseFuncDecl(tt.args.pkgName, tt.args.x); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("parseFuncDecl() = %#v, want %#v", got, tt.want)
-			}
+			got := p.ParseFuncDecl(tt.args.pkgName, tt.args.x)
+			assert.Equal(t, got, tt.want)
 		})
 	}
 }

@@ -251,40 +251,9 @@ func (p *Parser) ParseFuncCall(pkgName string, ce *ast.CallExpr) (functionCall F
 		functionCall.Name = "[" + size + "]" + p.ParseType(pkgName, x.Elt).String()
 	case *ast.IndexExpr: // sample/echo/echo.go:961 *ast.IndexExpr
 		functionCall.Name = p.ParseArray(pkgName, x).String()
-		//log.Printf("%s:%d %#v %#v", pos.Filename, pos.Line, x.X, x.Index)
 	case *ast.FuncLit: // sample/echo/echo_test.go:1423 *ast.FuncLit
-		//log.Printf("%s:%d %#v, %#v", pos.Filename, pos.Line, x.Type, x.Body)
-
-		parameters := make(Parameters, 0)
-
-		if x.Type.Params != nil {
-			for _, parms := range x.Type.Params.List {
-				prms := p.ParseParameters(parms)
-
-				for index, prm := range prms {
-					prm.Pkg = pkgName
-					prms[index] = prm
-				}
-
-				parameters = append(parameters, prms...)
-			}
-		}
-
-		results := make(Parameters, 0)
-		if x.Type.Results != nil {
-			for _, parms := range x.Type.Results.List {
-				prms := p.ParseParameters(parms)
-
-				for index, prm := range prms {
-					prm.Pkg = pkgName
-					prms[index] = prm
-				}
-
-				results = append(results, prms...)
-			}
-		}
-
-		functionCall.Name = "func(" + parameters.String() + ") (" + results.String() + ")"
+		parameters, results := p.ParseFuncType(pkgName, x.Type)
+		functionCall.Name = "func" + parameters.String() + results.String()
 	case *ast.InterfaceType: // sample/echo/echo_test.go:1068 *ast.InterfaceType
 		//log.Printf("%s:%d %#v", pos.Filename, pos.Line, )
 		//functions := make([]string, 0)
@@ -451,6 +420,9 @@ func (p *Parser) ParseType(pkgName string, x ast.Expr) (t Type) {
 		}
 		t.Name = p.ParseType(pkgName, x2.X).String() + "[" + index + "]"
 	case *ast.InterfaceType: // sample/echo/echo_test.go:1083 *ast.InterfaceType
+	case *ast.FuncType:
+		parameters, returns := p.ParseFuncType(pkgName, x2)
+		t.Name = "func" + parameters.String() + returns.String()
 	default:
 		log.Printf("unknown %s:%d %#v", pos.Filename, pos.Line, x2)
 	}
@@ -465,33 +437,7 @@ func (p *Parser) ParseFuncDecl(pkgName string, x *ast.FuncDecl) FunctionStatemen
 		receiver.Pkg = pkgName
 	}
 
-	parameters := make(Parameters, 0)
-	if x.Type.Params != nil {
-		for _, parms := range x.Type.Params.List {
-			prms := p.ParseParameters(parms)
-
-			for index, prm := range prms {
-				prm.Pkg = pkgName
-				prms[index] = prm
-			}
-
-			parameters = append(parameters, prms...)
-		}
-	}
-
-	returns := make(Parameters, 0)
-	if x.Type.Results != nil {
-		for _, r := range x.Type.Results.List {
-			rtrns := p.ParseParameters(r)
-
-			for index, rst := range rtrns {
-				rst.Pkg = pkgName
-				rtrns[index] = rst
-			}
-
-			returns = append(returns, rtrns...)
-		}
-	}
+	parameters, returns := p.ParseFuncType(pkgName, x.Type)
 
 	return FunctionStatement{
 		Package:    pkgName,
@@ -505,6 +451,38 @@ func (p *Parser) ParseFuncDecl(pkgName string, x *ast.FuncDecl) FunctionStatemen
 			End: x.End(),
 		},
 	}
+}
+
+func (p *Parser) ParseFuncType(pkgName string, typ *ast.FuncType) (parameters, returns Parameters) {
+	//parameters := make(Parameters, 0)
+	if typ.Params != nil {
+		for _, parms := range typ.Params.List {
+			prms := p.ParseParameters(parms)
+
+			for index, prm := range prms {
+				prm.Pkg = pkgName
+				prms[index] = prm
+			}
+
+			parameters = append(parameters, prms...)
+		}
+	}
+
+	//returns := make(Parameters, 0)
+	if typ.Results != nil {
+		for _, r := range typ.Results.List {
+			rtrns := p.ParseParameters(r)
+
+			for index, rst := range rtrns {
+				rst.Pkg = pkgName
+				rtrns[index] = rst
+			}
+
+			returns = append(returns, rtrns...)
+		}
+	}
+
+	return
 }
 
 func (p *Parser) ParseParameters(field *ast.Field) (parameters Parameters) {
