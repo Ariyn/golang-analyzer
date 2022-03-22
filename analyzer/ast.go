@@ -231,18 +231,7 @@ func (p *Parser) ParseFuncCall(pkgName string, ce *ast.CallExpr) (functionCall F
 	// TODO: import된 함수에 대해서, package가 잘 파싱되지 않을 가능성이 있음
 	switch x := ce.Fun.(type) {
 	case *ast.Ident:
-		functionCall.IsImportedFunction = x.Obj == nil
-		if functionCall.IsImportedFunction {
-			functionCall.Name = pkgName + "." + x.Name
-		} else {
-			switch x2 := x.Obj.Decl.(type) {
-			case *ast.FuncDecl:
-				functionDecl := p.ParseFuncDecl(pkgName, x2)
-				functionCall.Name = functionDecl.Identifier()
-			case *ast.AssignStmt:
-				functionCall.Name = pkgName + "." + x2.Lhs[0].(*ast.Ident).Name
-			}
-		}
+		functionCall.Name = pkgName + "." + x.Name
 	case *ast.SelectorExpr: // sample/echo/response.go:87 &ast.SelectorExpr
 		s := p.ParseSelector(pkgName, x)
 		functionCall.Name = s.String()
