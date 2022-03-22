@@ -378,7 +378,7 @@ func (p *Parser) ParseType(pkgName string, x ast.Expr) (t Type) {
 			}
 		}
 
-		t.Name = "func(" + parameters.String() + ") (" + results.String() + ")"
+		t.Name = "func" + parameters.String() + results.String()
 	case *ast.MapType: // sample/echo/binder_test.go:63 *ast.MapType
 		t.Name = "map[" + p.ParseType(pkgName, x2.Key).String() + "]" + p.ParseType(pkgName, x2.Value).String()
 	case *ast.ChanType: // sample/echo/context_test.go:173 *ast.ChanType
