@@ -3,6 +3,7 @@ package analyzer
 import (
 	"fmt"
 	"go/ast"
+	"log"
 	"strings"
 )
 
@@ -12,11 +13,13 @@ type Field interface {
 
 type Selector struct {
 	Parent           string
+	ParentType       string
 	Field            Field
 	ImportedSelector bool
 }
 
 func (s Selector) String() string {
+	log.Println(s.Field, s.Parent, s.ParentType)
 	return fmt.Sprintf("%s.%s", s.Field.String(), s.Parent)
 }
 
@@ -52,7 +55,7 @@ func (v Variable) String() string {
 
 type FunctionCall struct {
 	Package             string
-	Receiver            string
+	Parent              string
 	Name                string
 	Parameters          Parameters
 	FunctionDeclaration FunctionStatement

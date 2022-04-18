@@ -272,7 +272,6 @@ func (p *Parser) ParseFuncCall(pkgName string, ce *ast.CallExpr) (functionCall F
 
 	functionCall.Parameters = p.ParseArgs(pkgName, ce.Args)
 
-	// TODO: import된 함수에 대해서, package가 잘 파싱되지 않을 가능성이 있음
 	switch x := ce.Fun.(type) {
 	case *ast.Ident:
 		functionCall.Name = pkgName + "." + x.Name
@@ -340,6 +339,10 @@ func (p *Parser) ParseSelector(pkgName string, x *ast.SelectorExpr) (s Selector)
 		s.Field = p.ParseType(pkgName, x2.X)
 	default:
 		log.Printf("unknown case %s:%d (%#v)", pos.Filename, pos.Line, x2)
+	}
+
+	if fc, ok := p.functionsByName[pkgName+"."+x.Sel.Name+"()"]; ok {
+		s.ParentType = fc.Returns.String()
 	}
 
 	return
@@ -589,17 +592,37 @@ func (p *Parser) ParseParameters(field *ast.Field) (parameters Parameters) {
 var Nodes []ast.Node
 var mu sync.Mutex
 
+var currentNode ast.Node
+
+type SymbolTable struct {
+	Parent   *SymbolTable
+	symbols  map[string]string // TODO: string into type
+	Children []*SymbolTable
+}
+
+var symbolStack = make([]ast.Node, 0)
+
+func stackPush(stack *[]ast.Node, value ast.Node) {
+	*stack = append(*stack, value)
+}
+
+func stackPop(stack *[]ast.Node) (value ast.Node) {
+	value = (*stack)[len(*stack)-1]
+	*stack = (*stack)[:len(*stack)-1]
+	return
+}
+
 func inspector(ctx context.Context, p *Parser, pkgName string) (fch chan FunctionStatement, f func(node ast.Node) bool) {
 	fch = make(chan FunctionStatement)
 
 	Nodes = make([]ast.Node, 0)
-
 	f = func(node ast.Node) bool {
 		// golang does not allow adding method to exported type
-
 		if node == nil {
+			_ = stackPop(&symbolStack)
 			return false
 		}
+		stackPush(&symbolStack, node)
 
 		mu.Lock()
 		Nodes = append(Nodes, node)
@@ -614,6 +637,8 @@ func inspector(ctx context.Context, p *Parser, pkgName string) (fch chan Functio
 		switch x := node.(type) {
 		case *ast.FuncType:
 			//log.Printf("%#v", x)
+			_ = stackPop(&symbolStack)
+			return false
 		case *ast.FuncDecl:
 			function := p.ParseFuncDecl(pkgName, x)
 			tokenFile := p.fset.File(function.SourceCode.Pos)
@@ -630,6 +655,8 @@ func inspector(ctx context.Context, p *Parser, pkgName string) (fch chan Functio
 		case *ast.CallExpr:
 			functionCall := p.ParseFuncCall(pkgName, x)
 			p.functionCalls = append(p.functionCalls, functionCall)
+			_ = stackPop(&symbolStack)
+			return false
 		case *ast.TypeSpec:
 			if x2, ok := x.Type.(*ast.StructType); ok {
 				strct := p.parseStruct(pkgName, x.Name.Name, x2)
