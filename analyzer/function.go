@@ -3,7 +3,6 @@ package analyzer
 import (
 	"fmt"
 	"go/ast"
-	"log"
 	"strings"
 )
 
@@ -19,7 +18,7 @@ type Selector struct {
 }
 
 func (s Selector) String() string {
-	log.Println(s.Field, s.Parent, s.ParentType)
+	//log.Println(s.Field, s.Parent, s.ParentType)
 	return fmt.Sprintf("%s.%s", s.Field.String(), s.Parent)
 }
 
@@ -55,7 +54,7 @@ func (v Variable) String() string {
 
 type FunctionCall struct {
 	Package             string
-	Parent              string
+	Parent              *FunctionStatement
 	Name                string
 	Parameters          Parameters
 	FunctionDeclaration FunctionStatement
@@ -79,6 +78,7 @@ func (fc FunctionCall) String() string {
 }
 
 type FunctionStatement struct {
+	Path       string
 	Package    string
 	Receiver   Parameter
 	Name       string
@@ -87,6 +87,7 @@ type FunctionStatement struct {
 	Body       *ast.BlockStmt
 	SourceCode SourceCode
 	Calls      []FunctionCall
+	Node       ast.Node
 }
 
 func (fs FunctionStatement) Identifier() (idf string) {
@@ -97,7 +98,8 @@ func (fs FunctionStatement) Identifier() (idf string) {
 	}
 	idfs = append(idfs, fs.Name)
 
-	return strings.Join(idfs, ".")
+	idf = strings.Join(idfs, ".")
+	return
 }
 
 func (fs FunctionStatement) String() string {

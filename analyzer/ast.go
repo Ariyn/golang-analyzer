@@ -68,13 +68,13 @@ func (s Structure) Methods() []FunctionStatement {
 type Parser struct {
 	fset            *token.FileSet
 	path            string
-	functionsByName map[string]FunctionStatement
+	functionsByName map[string]FunctionStatement // TODO: what if 2 packages has same name? like context.
 	functionCalls   []FunctionCall
 	importTable     map[string]Import
 	filter          FilterFunc
 	structureTypes  map[string]Structure
 	mode            parser.Mode
-	inspector       func(ctx context.Context, p *Parser, pkgName string) (fch chan FunctionStatement, f func(node ast.Node) bool)
+	inspector       func(ctx context.Context, p *Parser, path string, pkgName string) (fch chan FunctionStatement, f func(node ast.Node) bool)
 }
 
 func NewParser(path string) (p Parser) {
@@ -91,6 +91,14 @@ func NewParser(path string) (p Parser) {
 		inspector:      inspector,
 	}
 
+	return
+}
+
+func (p *Parser) LineInfo(pos token.Pos) (fileName string, lineNumber int) {
+	f := p.fset.File(pos)
+	fileName = f.Name()
+
+	lineNumber = f.Line(pos)
 	return
 }
 
@@ -115,6 +123,11 @@ func (p Parser) Structures() []Structure {
 	return ss
 }
 
+func (p Parser) Function(name string) (function FunctionStatement, ok bool) {
+	function, ok = p.functionsByName[name]
+	return
+}
+
 func (p Parser) Functions() (functions []FunctionStatement) {
 	for _, f := range p.functionsByName {
 		functions = append(functions, f)
@@ -131,7 +144,7 @@ func (p *Parser) ParseFile(source string) {
 
 	functions := make([]FunctionStatement, 0)
 
-	fch, insptr := p.inspector(context.TODO(), p, pkgs.Name.Name)
+	fch, insptr := p.inspector(context.TODO(), p, p.path, pkgs.Name.Name)
 
 	go func(fch chan FunctionStatement) {
 		ast.Inspect(pkgs, insptr)
@@ -163,6 +176,7 @@ func (p *Parser) ParseFile(source string) {
 }
 
 func (p *Parser) Parse() {
+	// TODO: recursive parse?
 	pkgs, err := parser.ParseDir(p.fset, p.path, p.filter, p.mode)
 
 	if err != nil {
@@ -171,9 +185,9 @@ func (p *Parser) Parse() {
 
 	functions := make([]FunctionStatement, 0)
 
+	path := p.path
 	for pkgName, pkg := range pkgs {
-
-		fch, insptr := p.inspector(context.TODO(), p, pkgName)
+		fch, insptr := p.inspector(context.TODO(), p, path, pkgName)
 
 		go func(fch chan FunctionStatement) {
 			ast.Inspect(pkg, insptr)
@@ -189,6 +203,7 @@ func (p *Parser) Parse() {
 		identifier := function.Identifier()
 
 		if decl, ok := p.functionsByName[identifier]; ok {
+			//log.Println(function, function.Identifier(), function.Parent, decl)
 			function.FunctionDeclaration = decl
 			decl.Calls = append(decl.Calls, function)
 
@@ -306,6 +321,15 @@ func (p *Parser) ParseFuncCall(pkgName string, ce *ast.CallExpr) (functionCall F
 		functionCall.Name = fmt.Sprintf("interface{%#v}", x.Methods)
 	default:
 		log.Printf("unknown case %s:%d (%#v)", pos.Filename, pos.Line, x)
+	}
+
+	if len(functionDeclarations) != 0 {
+		fd := functionDeclarations[len(functionDeclarations)-1]
+		//log.Println(functionCall.Name, fd)
+
+		functionCall.Parent = fd
+		//} else {
+		//	log.Println(functionCall.Name, "no function declarations")
 	}
 
 	return functionCall
@@ -479,27 +503,32 @@ func (p *Parser) ParseType(pkgName string, x ast.Expr) (t Type) {
 	return
 }
 
-func (p *Parser) ParseFuncDecl(pkgName string, x *ast.FuncDecl) FunctionStatement {
-	var receiver Parameter
-	if x.Recv != nil {
-		receiver = p.ParseParameters(x.Recv.List[0])[0]
-		receiver.Pkg = pkgName
-	}
+var functionDeclarations []*FunctionStatement
 
-	parameters, returns := p.ParseFuncType(pkgName, x.Type)
-
-	return FunctionStatement{
-		Package:    pkgName,
-		Receiver:   receiver,
-		Parameters: parameters,
-		Name:       x.Name.Name,
-		Returns:    returns,
-		Body:       x.Body,
+func (p *Parser) ParseFuncDecl(path, pkgName string, x *ast.FuncDecl) (fs FunctionStatement) {
+	fs = FunctionStatement{
+		Package: pkgName,
+		Path:    path,
+		Name:    x.Name.Name,
+		Body:    x.Body,
 		SourceCode: SourceCode{
 			Pos: x.Pos(),
 			End: x.End(),
 		},
+		Node: x,
 	}
+
+	var receiver Parameter
+	if x.Recv != nil {
+		receiver = p.ParseParameters(x.Recv.List[0])[0]
+		receiver.Pkg = pkgName
+
+		fs.Receiver = receiver
+	}
+
+	fs.Parameters, fs.Returns = p.ParseFuncType(pkgName, x.Type)
+
+	return fs
 }
 
 func (p *Parser) ParseFuncType(pkgName string, typ *ast.FuncType) (parameters, returns Parameters) {
@@ -612,14 +641,17 @@ func stackPop(stack *[]ast.Node) (value ast.Node) {
 	return
 }
 
-func inspector(ctx context.Context, p *Parser, pkgName string) (fch chan FunctionStatement, f func(node ast.Node) bool) {
+func inspector(ctx context.Context, p *Parser, path string, pkgName string) (fch chan FunctionStatement, f func(node ast.Node) bool) {
 	fch = make(chan FunctionStatement)
 
 	Nodes = make([]ast.Node, 0)
 	f = func(node ast.Node) bool {
 		// golang does not allow adding method to exported type
 		if node == nil {
-			_ = stackPop(&symbolStack)
+			n := stackPop(&symbolStack)
+			if len(functionDeclarations) != 0 && n == functionDeclarations[len(functionDeclarations)-1].Node {
+				functionDeclarations = functionDeclarations[:len(functionDeclarations)-1]
+			}
 			return false
 		}
 		stackPush(&symbolStack, node)
@@ -640,15 +672,19 @@ func inspector(ctx context.Context, p *Parser, pkgName string) (fch chan Functio
 			_ = stackPop(&symbolStack)
 			return false
 		case *ast.FuncDecl:
-			function := p.ParseFuncDecl(pkgName, x)
+			function := p.ParseFuncDecl(path, pkgName, x)
 			tokenFile := p.fset.File(function.SourceCode.Pos)
 			if file, err := os.Open(tokenFile.Name()); err == nil {
 				b, _ := ioutil.ReadAll(file)
 				if b != nil {
 					function.SourceCode.Data = string(b[tokenFile.Offset(x.Pos())-1 : tokenFile.Offset(x.End())])
 				}
+
+				function.Path = file.Name()
 			}
 			p.functionsByName[function.Identifier()] = function
+
+			functionDeclarations = append(functionDeclarations, &function)
 		case *ast.ImportSpec:
 			imp := p.ParseImport(x)
 			p.importTable[imp.Caller()] = imp
