@@ -68,20 +68,20 @@ func (s Structure) Methods() []FunctionStatement {
 type Parser struct {
 	fset            *token.FileSet
 	path            string
-	functionsByName map[string]FunctionStatement // TODO: what if 2 packages has same name? like context.
+	functionsByName map[string]*FunctionStatement // TODO: what if 2 packages has same name? like context.
 	functionCalls   []FunctionCall
 	importTable     map[string]Import
 	filter          FilterFunc
 	structureTypes  map[string]Structure
 	mode            parser.Mode
-	inspector       func(ctx context.Context, p *Parser, path string, pkgName string) (fch chan FunctionStatement, f func(node ast.Node) bool)
+	inspector       func(ctx context.Context, p *Parser, path string, pkgName string) (fch chan *FunctionStatement, f func(node ast.Node) bool)
 }
 
 func NewParser(path string) (p Parser) {
 	p = Parser{
 		fset:            token.NewFileSet(),
 		path:            path,
-		functionsByName: make(map[string]FunctionStatement),
+		functionsByName: make(map[string]*FunctionStatement),
 		functionCalls:   make([]FunctionCall, 0),
 		importTable:     make(map[string]Import),
 		filter: func(info fs.FileInfo) bool {
@@ -123,12 +123,12 @@ func (p Parser) Structures() []Structure {
 	return ss
 }
 
-func (p Parser) Function(name string) (function FunctionStatement, ok bool) {
+func (p Parser) Function(name string) (function *FunctionStatement, ok bool) {
 	function, ok = p.functionsByName[name]
 	return
 }
 
-func (p Parser) Functions() (functions []FunctionStatement) {
+func (p Parser) Functions() (functions []*FunctionStatement) {
 	for _, f := range p.functionsByName {
 		functions = append(functions, f)
 	}
@@ -142,11 +142,11 @@ func (p *Parser) ParseFile(source string) {
 		panic(err)
 	}
 
-	functions := make([]FunctionStatement, 0)
+	functions := make([]*FunctionStatement, 0)
 
 	fch, insptr := p.inspector(context.TODO(), p, p.path, pkgs.Name.Name)
 
-	go func(fch chan FunctionStatement) {
+	go func(fch chan *FunctionStatement) {
 		ast.Inspect(pkgs, insptr)
 		close(fch)
 	}(fch)
@@ -183,13 +183,13 @@ func (p *Parser) Parse() {
 		panic(err)
 	}
 
-	functions := make([]FunctionStatement, 0)
+	functions := make([]*FunctionStatement, 0)
 
 	path := p.path
 	for pkgName, pkg := range pkgs {
 		fch, insptr := p.inspector(context.TODO(), p, path, pkgName)
 
-		go func(fch chan FunctionStatement) {
+		go func(fch chan *FunctionStatement) {
 			ast.Inspect(pkg, insptr)
 			close(fch)
 		}(fch)
@@ -641,8 +641,8 @@ func stackPop(stack *[]ast.Node) (value ast.Node) {
 	return
 }
 
-func inspector(ctx context.Context, p *Parser, path string, pkgName string) (fch chan FunctionStatement, f func(node ast.Node) bool) {
-	fch = make(chan FunctionStatement)
+func inspector(ctx context.Context, p *Parser, path string, pkgName string) (fch chan *FunctionStatement, f func(node ast.Node) bool) {
+	fch = make(chan *FunctionStatement)
 
 	Nodes = make([]ast.Node, 0)
 	f = func(node ast.Node) bool {
@@ -682,7 +682,7 @@ func inspector(ctx context.Context, p *Parser, path string, pkgName string) (fch
 
 				function.Path = file.Name()
 			}
-			p.functionsByName[function.Identifier()] = function
+			p.functionsByName[function.Identifier()] = &function
 
 			functionDeclarations = append(functionDeclarations, &function)
 		case *ast.ImportSpec:

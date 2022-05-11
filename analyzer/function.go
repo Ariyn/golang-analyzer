@@ -57,7 +57,7 @@ type FunctionCall struct {
 	Parent              *FunctionStatement
 	Name                string
 	Parameters          Parameters
-	FunctionDeclaration FunctionStatement
+	FunctionDeclaration *FunctionStatement
 	IsImportedFunction  bool
 	File                string
 	FilePath            string
