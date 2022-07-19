@@ -46,7 +46,7 @@ type Structure struct {
 	PkgName    string
 	Name       string
 	Parameters Parameters
-	methods    []FunctionStatement
+	methods    []*FunctionStatement
 }
 
 //Class07 : equals()
@@ -61,7 +61,7 @@ func (s Structure) Mermaid() (mStr string) {
 	return "class " + s.Name + "\n" + strings.Join(mStrs, "\n")
 }
 
-func (s Structure) Methods() []FunctionStatement {
+func (s Structure) Methods() []*FunctionStatement {
 	return s.methods
 }
 
@@ -709,7 +709,7 @@ func (p Parser) parseStruct(pkgName, structName string, stct *ast.StructType) (s
 	s.Parameters = make(Parameters, 0)
 	s.PkgName = pkgName
 	s.Name = structName
-	s.methods = make([]FunctionStatement, 0)
+	s.methods = make([]*FunctionStatement, 0)
 
 	for _, field := range stct.Fields.List {
 		parameter := p.ParseParameters(field)
