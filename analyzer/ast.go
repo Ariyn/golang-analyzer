@@ -142,6 +142,8 @@ func (p *Parser) ParseFile(source string) {
 		functions = append(functions, function)
 	}
 
+	// e.Match([]string{"GET", "POST"}, "/test", server.Test)
+	// 이런식으로 함수 자체가 넘어 갔을때, functionCalls에는 집계되지 않음.
 	for index, function := range p.functionCalls {
 		identifier := function.Identifier()
 
