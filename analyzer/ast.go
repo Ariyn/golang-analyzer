@@ -42,11 +42,30 @@ type SourceCode struct {
 
 type FilterFunc func(info fs.FileInfo) bool
 
+type Structure struct {
+	PkgName    string
+	Name       string
+	Parameters Parameters
+}
+
+//Class07 : equals()
+//Class07 : Object[] elementData
+//Class01 : size()
+func (s Structure) Mermaid() (mStr string) {
+	mStrs := make([]string, 0)
+	for _, p := range s.Parameters {
+		mStrs = append(mStrs, fmt.Sprintf("%s : %s %s", s.Name, p.Type, p.Name))
+	}
+
+	return "class " + s.Name + "\n" + strings.Join(mStrs, "\n")
+}
+
 type Parser struct {
 	fset            *token.FileSet
 	path            string
 	functionsByName map[string]FunctionStatement
 	functionCalls   []FunctionCall
+	structs         []Structure
 	importTable     map[string]Import
 	filter          FilterFunc
 	mode            parser.Mode
@@ -79,6 +98,10 @@ func (p *Parser) SetFilter(filter FilterFunc) {
 
 func (p Parser) FuncCalls() []FunctionCall {
 	return p.functionCalls
+}
+
+func (p Parser) Structures() []Structure {
+	return p.structs
 }
 
 func (p Parser) Functions() (functions []FunctionStatement) {
@@ -312,7 +335,7 @@ func (p *Parser) ParseType(pkgName string, x ast.Expr) (t Type) {
 	if x == nil {
 		return
 	}
-	pos := p.fset.Position(x.Pos())
+	//pos := p.fset.Position(x.Pos())
 
 	switch x2 := x.(type) {
 	case *ast.StarExpr:
@@ -425,7 +448,8 @@ func (p *Parser) ParseType(pkgName string, x ast.Expr) (t Type) {
 		parameters, returns := p.ParseFuncType(pkgName, x2)
 		t.Name = "func" + parameters.String() + returns.String()
 	default:
-		log.Printf("unknown %s:%d %#v", pos.Filename, pos.Line, x2)
+		// ret.Items.([]model.Subscriber)
+		//log.Printf("unknown %s:%d %#v", pos.Filename, pos.Line, x2)
 	}
 
 	return
@@ -512,6 +536,18 @@ func (p *Parser) ParseParameters(field *ast.Field) (parameters Parameters) {
 		}
 		//log.Printf("%#v", prmType)
 		prm.Type = "[" + size + "]" + p.ParseType("", prmType.Elt).String()
+	case *ast.MapType:
+		prm.Type = "map[" + p.ParseType("", prmType.Key).String() + "]" + p.ParseType("", prmType.Value).String()
+	case *ast.ChanType:
+		if prmType.Dir == ast.RECV {
+			prm.Type = "chan<- "
+		} else if prmType.Dir == ast.SEND {
+			prm.Type = "<-chan "
+		} else {
+			prm.Type = "chan "
+		}
+
+		prm.Type += p.ParseType("", prmType.Value).String()
 	}
 
 	if len(field.Names) == 0 {
@@ -573,9 +609,27 @@ func inspector(ctx context.Context, p *Parser, pkgName string) (fch chan Functio
 		case *ast.CallExpr:
 			functionCall := p.ParseFuncCall(pkgName, x)
 			p.functionCalls = append(p.functionCalls, functionCall)
+		case *ast.TypeSpec:
+			if x2, ok := x.Type.(*ast.StructType); ok {
+				strct := p.parseStruct(pkgName, x.Name.Name, x2)
+				p.structs = append(p.structs, strct)
+			}
 		}
 		return true
 	}
 
 	return
+}
+
+func (p Parser) parseStruct(pkgName, structName string, stct *ast.StructType) (s Structure) {
+	s.Parameters = make(Parameters, 0)
+	s.PkgName = pkgName
+	s.Name = structName
+
+	for _, field := range stct.Fields.List {
+		parameter := p.ParseParameters(field)
+		s.Parameters = append(s.Parameters, parameter...)
+	}
+
+	return s
 }
