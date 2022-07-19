@@ -46,6 +46,7 @@ type Structure struct {
 	PkgName    string
 	Name       string
 	Parameters Parameters
+	methods    []FunctionStatement
 }
 
 //Class07 : equals()
@@ -60,14 +61,18 @@ func (s Structure) Mermaid() (mStr string) {
 	return "class " + s.Name + "\n" + strings.Join(mStrs, "\n")
 }
 
+func (s Structure) Methods() []FunctionStatement {
+	return s.methods
+}
+
 type Parser struct {
 	fset            *token.FileSet
 	path            string
 	functionsByName map[string]FunctionStatement
 	functionCalls   []FunctionCall
-	structs         []Structure
 	importTable     map[string]Import
 	filter          FilterFunc
+	structureTypes  map[string]Structure
 	mode            parser.Mode
 	inspector       func(ctx context.Context, p *Parser, pkgName string) (fch chan FunctionStatement, f func(node ast.Node) bool)
 }
@@ -82,7 +87,8 @@ func NewParser(path string) (p Parser) {
 		filter: func(info fs.FileInfo) bool {
 			return true
 		},
-		inspector: inspector,
+		structureTypes: make(map[string]Structure),
+		inspector:      inspector,
 	}
 
 	return
@@ -101,7 +107,12 @@ func (p Parser) FuncCalls() []FunctionCall {
 }
 
 func (p Parser) Structures() []Structure {
-	return p.structs
+	ss := make([]Structure, 0)
+	for _, s := range p.structureTypes {
+		ss = append(ss, s)
+	}
+
+	return ss
 }
 
 func (p Parser) Functions() (functions []FunctionStatement) {
@@ -187,6 +198,14 @@ func (p *Parser) Parse() {
 		function.LineNumber = f.Line(token.Pos(function.Pos))
 
 		p.functionCalls[index] = function
+	}
+
+	for _, f := range p.functionsByName {
+		id := f.Receiver.Pkg + "." + f.Receiver.Type
+		if strct, ok := p.structureTypes[id]; ok {
+			strct.methods = append(strct.methods, f)
+			p.structureTypes[id] = strct
+		}
 	}
 }
 
@@ -612,7 +631,7 @@ func inspector(ctx context.Context, p *Parser, pkgName string) (fch chan Functio
 		case *ast.TypeSpec:
 			if x2, ok := x.Type.(*ast.StructType); ok {
 				strct := p.parseStruct(pkgName, x.Name.Name, x2)
-				p.structs = append(p.structs, strct)
+				p.structureTypes[strct.PkgName+"."+strct.Name] = strct
 			}
 		}
 		return true
@@ -625,6 +644,7 @@ func (p Parser) parseStruct(pkgName, structName string, stct *ast.StructType) (s
 	s.Parameters = make(Parameters, 0)
 	s.PkgName = pkgName
 	s.Name = structName
+	s.methods = make([]FunctionStatement, 0)
 
 	for _, field := range stct.Fields.List {
 		parameter := p.ParseParameters(field)
